@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# LEANN indexes
+.leann/
+
+# OS files
+.DS_Store
+
+# Generated description files
+*.description.txt
+
+# Test data
+test_data/
+
+# GGUF models
+models/
