@@ -239,3 +239,40 @@ def test_confidence_check_flags_low_confidence():
     answer = rag._reduce("find invoices", relevant)
     result = rag._confidence_check(answer, relevant)
     assert "(low confidence)" in result.lower()
+
+
+def test_full_pipeline_invoice_query():
+    """End-to-end: query about invoices returns structured answer."""
+    # LLM responses in order: planner, map x2, reduce (no self-check LLM call)
+    responses = [
+        json.dumps({"keywords": ["invoice"], "file_filter": "pdf", "source_hint": "Invoice"}),
+        json.dumps({"relevant": True, "facts": ["Invoice EFCDCDB4-0005", "Amount: $21.78", "Date: Dec 4, 2025"]}),
+        json.dumps({"relevant": False, "facts": []}),
+        "Found 1 invoice: EFCDCDB4-0005 for $21.78 dated December 4, 2025.",
+    ]
+    llm = FakeLLM(responses)
+    results = _make_results(
+        "Invoice number EFCDCDB4-0005 Date December 4, 2025 Amount $21.78",
+        "National Park admission ticket",
+    )
+    searcher = FakeSearcher(results)
+    rag = AgenticRAG(searcher, llm, top_k=5, debug=False)
+
+    answer = rag.ask("any invoices in my files?")
+    assert "EFCDCDB4-0005" in answer
+    assert "$21.78" in answer
+
+
+def test_full_pipeline_no_results():
+    """When no chunks are relevant, returns 'no information found'."""
+    responses = [
+        json.dumps({"keywords": ["quantum"], "file_filter": None, "source_hint": None}),
+        json.dumps({"relevant": False, "facts": []}),
+    ]
+    llm = FakeLLM(responses)
+    results = _make_results("Invoice #123")
+    searcher = FakeSearcher(results)
+    rag = AgenticRAG(searcher, llm, top_k=5, debug=False)
+
+    answer = rag.ask("tell me about quantum physics")
+    assert "No relevant" in answer

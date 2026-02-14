@@ -265,6 +265,40 @@ class AgenticRAG:
             return f"{answer}\n\n(Low confidence) Answer may not reflect source documents."
 
         return answer
+
+    def ask(self, query: str) -> str:
+        """Run the full agentic RAG pipeline."""
+        t0 = time.time()
+
+        # Stage 1: Plan
+        plan = self._plan(query)
+
+        # Stage 2: Search
+        results = self._search(query, plan)
+        if not results:
+            # Retry without filters
+            self._log("SEARCH", "No results with filters, retrying without")
+            results = self.searcher.search(query, top_k=self.top_k)
+
+        if not results:
+            return "No relevant information found."
+
+        # Stage 3: Map
+        self._log("MAP", f"Processing {len(results)} chunks...")
+        mapped = [self._map_chunk(query, chunk) for chunk in results]
+
+        # Stage 4: Filter
+        relevant = self._filter(mapped)
+
+        # Stage 5: Reduce
+        answer = self._reduce(query, relevant)
+
+        # Stage 6: Confidence check (Python token overlap, no LLM call)
+        answer = self._confidence_check(answer, relevant)
+
+        elapsed = time.time() - t0
+        self._log("DONE", f"Pipeline completed in {elapsed:.1f}s")
+        return answer
 def chat_loop(index_name: str):
     print("\nLoading LFM2.5-1.2B-Instruct...")
     t0 = time.time()
