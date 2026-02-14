@@ -163,3 +163,42 @@ def test_grep_files():
     )
     answer = agent.run("find invoice files")
     assert "invoice" in answer.lower()
+
+
+def test_filename_fallback_finds_file_by_name():
+    """When semantic search finds nothing, filename fallback reads matching files.
+
+    Call order with shared model.generate mock:
+    1. Agent step 0: response[0] (no tool call -> fallback router -> semantic_search)
+    2. semantic_search -> searcher -> _extract_facts for chunk -> response[1] (irrelevant)
+    3. Filename fallback: grep "invoice" finds invoice_macbook.txt, reads it,
+       _extract_facts on file text -> response[2] (relevant facts)
+    4. Agent step 1: response[3] (final answer using facts)
+    """
+    from file_reader import FileReader
+
+    results = [
+        FakeSearchResult(
+            id="1", text="Team meeting notes for March sprint planning",
+            score=0.85, metadata={"file_name": "meeting_notes.txt"},
+        )
+    ]
+
+    agent, model = _setup(
+        model_responses=[
+            "Let me search for invoice information.",
+            json.dumps({"relevant": False, "facts": []}),
+            json.dumps({"relevant": True, "facts": ["Invoice #456", "MacBook Pro M4"]}),
+            "Found an invoice: Invoice #456 for a MacBook Pro M4.",
+        ],
+        search_results=results,
+        files={"invoice_macbook.txt": "Invoice #456\nItem: MacBook Pro M4\nAmount: $2499"},
+    )
+
+    # Patch the searcher with file_reader and toolbox
+    searcher = agent.tools.searcher
+    searcher.file_reader = FileReader()
+    searcher.toolbox = agent.tools.toolbox
+
+    answer = agent.run("any macbook invoice?")
+    assert "456" in answer or "MacBook" in answer
