@@ -313,13 +313,14 @@ def chat_loop(index_name: str):
             "model": "LiquidAI/LFM2.5-1.2B-Instruct",
         },
     )
+
+    rag = AgenticRAG(chat.searcher, chat.llm, top_k=TOP_K, debug=DEBUG_SOURCES)
+
     print(f"Ready in {time.time() - t0:.1f}s")
     print("=" * 50)
     print("Ask anything about your files. Type 'quit' to exit.")
-    print("Type 'debug' to toggle source display.")
+    print("Type 'debug' to toggle pipeline trace.")
     print("=" * 50)
-
-    show_sources = DEBUG_SOURCES
 
     while True:
         try:
@@ -334,30 +335,12 @@ def chat_loop(index_name: str):
             print("Bye!")
             break
         if query.lower() == "debug":
-            show_sources = not show_sources
-            print(f"Source display: {'ON' if show_sources else 'OFF'}")
+            rag.debug = not rag.debug
+            print(f"Pipeline trace: {'ON' if rag.debug else 'OFF'}")
             continue
 
         t0 = time.time()
-
-        # Search for relevant chunks
-        results = chat.searcher.search(query, top_k=TOP_K)
-        search_time = time.time() - t0
-
-        if show_sources:
-            print(f"\n--- SOURCES ({len(results)} chunks, {search_time:.2f}s) ---")
-            for i, r in enumerate(results):
-                source = r.metadata.get("source", "?")
-                print(f"  [{i+1}] score={r.score:.3f}  {source}")
-                print(f"       {r.text[:150].replace(chr(10), ' ')}...")
-            print("---")
-
-        # Build prompt with strict RAG instructions
-        context = "\n\n".join([r.text for r in results])
-        prompt = RAG_PROMPT.format(context=context, question=query)
-
-        # Ask the LLM with low temperature for factual grounding
-        response = chat.llm.ask(prompt, temperature=0.1)
+        response = rag.ask(query)
         elapsed = time.time() - t0
 
         print(f"\n{response}")
