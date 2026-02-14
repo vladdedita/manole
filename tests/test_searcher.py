@@ -2,7 +2,7 @@
 import json
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
-from searcher import Searcher
+from searcher import Searcher, MAP_SYSTEM, extract_keywords
 
 
 @dataclass
@@ -84,7 +84,8 @@ def test_all_irrelevant_returns_message():
 
 
 def test_score_prefilter():
-    results = _make_results("good", "ok", "bad", scores=[0.95, 0.80, 0.50])
+    # Threshold is 0.95 * 0.85 = 0.8075, so 0.82 passes but 0.50 doesn't
+    results = _make_results("good", "ok", "bad", scores=[0.95, 0.82, 0.50])
     model = _make_model([
         json.dumps({"relevant": True, "facts": ["fact1"]}),
         json.dumps({"relevant": True, "facts": ["fact2"]}),
@@ -133,6 +134,12 @@ def test_top_k_passed_to_leann():
     assert leann.last_query == "test"
 
 
+def test_map_prompt_has_false_examples():
+    """Few-shot examples with relevant=false are critical for small models."""
+    assert '"relevant": false' in MAP_SYSTEM
+    assert MAP_SYSTEM.count('"relevant": false') >= 2
+
+
 def test_multiple_sources_grouped():
     results = _make_results("data1", "data2", sources=["a.pdf", "b.pdf"])
     model = _make_model([
@@ -146,3 +153,28 @@ def test_multiple_sources_grouped():
     assert "From b.pdf:" in output
     assert "fact A" in output
     assert "fact B" in output
+
+
+def test_extract_keywords_basic():
+    assert extract_keywords("any macbook invoice?") == ["macbook", "invoice"]
+
+
+def test_extract_keywords_filters_stopwords():
+    result = extract_keywords("what is the file size")
+    assert "what" not in result
+    assert "the" not in result
+    assert "file" in result
+    assert "size" in result
+
+
+def test_extract_keywords_lowercase():
+    assert extract_keywords("MacBook PDF") == ["macbook", "pdf"]
+
+
+def test_extract_keywords_short_words_removed():
+    result = extract_keywords("is it an ok file")
+    assert "is" not in result
+    assert "it" not in result
+    assert "an" not in result
+    assert "ok" not in result
+    assert "file" in result

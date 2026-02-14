@@ -4,13 +4,41 @@ from parser import parse_json
 MAP_SYSTEM = (
     "You are a data extraction assistant. The user will give you a question and a text passage. "
     "Decide if the text DIRECTLY answers the question. "
-    "Set relevant to false unless the text specifically discusses the topic asked about. "
-    "If relevant, extract the specific data points as short factual strings. "
-    "Extract ALL matching data points, do not skip any. "
-    'Reply with JSON: {"relevant": true/false, "facts": ["fact1", "fact2"]}'
+    "If the text is about a DIFFERENT topic, set relevant to false. "
+    "If relevant, extract the specific data points as short factual strings.\n\n"
+    "Example 1:\n"
+    'Question: What is the invoice total?\n'
+    'Text: Invoice #123, Amount: $500, Due: Jan 15\n'
+    '{"relevant": true, "facts": ["Invoice #123", "Amount: $500", "Due: Jan 15"]}\n\n'
+    "Example 2:\n"
+    'Question: What is the invoice total?\n'
+    'Text: Meeting notes: discussed new hire onboarding and team lunch plans\n'
+    '{"relevant": false, "facts": []}\n\n'
+    "Example 3:\n"
+    'Question: any macbook invoice?\n'
+    'Text: Sprint review: deployed helm charts, updated CI pipeline, new model released\n'
+    '{"relevant": false, "facts": []}\n\n'
+    'Reply with JSON only: {"relevant": true/false, "facts": [...]}'
 )
 
 MAX_FACTS_PER_CHUNK = 10
+
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "was", "are", "were", "be", "been",
+    "do", "does", "did", "has", "have", "had", "it", "its",
+    "of", "for", "in", "on", "to", "at", "by", "my", "me",
+    "what", "when", "where", "how", "who", "which", "any",
+    "and", "or", "not", "no", "but", "if", "so", "can",
+    "all", "each", "every", "this", "that", "there", "here",
+    "from", "with", "about", "into", "over", "after", "before",
+    "show", "find", "get", "tell", "give", "list",
+})
+
+
+def extract_keywords(query: str) -> list[str]:
+    """Extract searchable keywords from a query string."""
+    words = query.lower().replace("?", "").replace("!", "").replace(".", "").split()
+    return [w for w in words if w not in _STOPWORDS and len(w) > 2]
 
 
 class Searcher:
@@ -29,7 +57,7 @@ class Searcher:
 
         # Score pre-filter: drop chunks well below the top score
         if len(chunks) > 1:
-            threshold = chunks[0].score * 0.8
+            threshold = chunks[0].score * 0.85
             before = len(chunks)
             chunks = [c for c in chunks if c.score >= threshold]
             if self.debug and len(chunks) < before:
