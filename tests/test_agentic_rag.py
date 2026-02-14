@@ -142,3 +142,47 @@ def test_search_applies_metadata_filters():
     search_results = rag._search("invoices", plan)
     assert searcher.last_filters == {"source": {"contains": "Invoice"}}
     assert len(search_results) == 1
+
+
+def test_map_extracts_facts_from_relevant_chunk():
+    map_response = json.dumps({"relevant": True, "facts": ["Invoice #123", "Amount: $50"]})
+    llm = FakeLLM([map_response])
+    searcher = FakeSearcher([])
+    rag = AgenticRAG(searcher, llm, top_k=5, debug=False)
+
+    chunk = FakeSearchResult(id="0", text="Invoice #123 for $50", score=0.9, metadata={})
+    result = rag._map_chunk("find invoices", chunk)
+    assert result["relevant"] is True
+    assert "Invoice #123" in result["facts"]
+
+
+def test_map_marks_irrelevant_chunk():
+    map_response = json.dumps({"relevant": False, "facts": []})
+    llm = FakeLLM([map_response])
+    rag = AgenticRAG(FakeSearcher([]), llm, top_k=5, debug=False)
+
+    chunk = FakeSearchResult(id="0", text="Nice weather today", score=0.3, metadata={})
+    result = rag._map_chunk("find invoices", chunk)
+    assert result["relevant"] is False
+
+
+def test_map_garbage_response_defaults_to_relevant():
+    llm = FakeLLM(["I have no idea what you want"])
+    rag = AgenticRAG(FakeSearcher([]), llm, top_k=5, debug=False)
+
+    chunk = FakeSearchResult(id="0", text="Some text", score=0.5, metadata={})
+    result = rag._map_chunk("query", chunk)
+    assert result["relevant"] is True
+    assert chunk.text in result["facts"]
+
+
+def test_filter_removes_irrelevant():
+    mapped = [
+        {"relevant": True, "facts": ["fact1"], "source": "a.pdf"},
+        {"relevant": False, "facts": [], "source": "b.pdf"},
+        {"relevant": True, "facts": ["fact2"], "source": "c.pdf"},
+    ]
+    rag = AgenticRAG(FakeSearcher([]), FakeLLM([]), debug=False)
+    filtered = rag._filter(mapped)
+    assert len(filtered) == 2
+    assert all(m["relevant"] for m in filtered)

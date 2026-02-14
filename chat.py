@@ -191,6 +191,32 @@ class AgenticRAG:
         return results
 
 
+
+    def _map_chunk(self, query: str, chunk) -> dict:
+        """Stage 3: Extract facts from a single chunk."""
+        prompt = MAP_PROMPT.format(query=query, chunk_text=chunk.text[:500])
+        response = self.llm.ask(prompt, temperature=0.0)
+        parsed = parse_json(response)
+
+        source = chunk.metadata.get("source", chunk.id)
+
+        if parsed is None:
+            self._log("MAP", f"  {source}: parse failed, treating as relevant")
+            return {"relevant": True, "facts": [chunk.text[:200]], "source": source}
+
+        result = {
+            "relevant": parsed.get("relevant", True),
+            "facts": parsed.get("facts", []),
+            "source": source,
+        }
+        self._log("MAP", f"  {source}: relevant={result['relevant']}, facts={len(result['facts'])}")
+        return result
+
+    def _filter(self, mapped: list[dict]) -> list[dict]:
+        """Stage 4: Drop irrelevant chunks."""
+        relevant = [m for m in mapped if m["relevant"]]
+        self._log("FILTER", f"Kept {len(relevant)}/{len(mapped)} chunks")
+        return relevant
 def chat_loop(index_name: str):
     print("\nLoading LFM2.5-1.2B-Instruct...")
     t0 = time.time()
