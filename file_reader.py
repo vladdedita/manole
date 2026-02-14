@@ -1,0 +1,39 @@
+"""FileReader — on-demand text extraction via Docling."""
+from pathlib import Path
+
+
+class FileReader:
+    """Wraps Docling's DocumentConverter for on-demand text extraction."""
+
+    # Extensions Docling cannot handle — read as plain text instead.
+    _PLAIN_TEXT_SUFFIXES = {".txt", ".log", ".cfg", ".ini", ".toml", ".yaml", ".yml", ".json", ".py", ".sh"}
+
+    def __init__(self, max_chars: int = 4000):
+        self.max_chars = max_chars
+        self._converter = None
+
+    def read(self, path: str) -> str:
+        """Extract text from any file. Returns text or error message."""
+        file_path = Path(path)
+        if not file_path.exists():
+            return f"File not found: {path}"
+
+        try:
+            if file_path.suffix.lower() in self._PLAIN_TEXT_SUFFIXES:
+                text = file_path.read_text(errors="replace")
+            else:
+                converter = self._get_converter()
+                result = converter.convert(str(file_path))
+                text = result.document.export_to_markdown()
+            if not text or not text.strip():
+                return f"No text content extracted from {file_path.name}"
+            return text[:self.max_chars]
+        except Exception as e:
+            return f"Failed to read {file_path.name}: {e}"
+
+    def _get_converter(self):
+        """Lazy-load Docling converter on first use."""
+        if self._converter is None:
+            from docling.document_converter import DocumentConverter
+            self._converter = DocumentConverter()
+        return self._converter
