@@ -1,5 +1,7 @@
-"""Tests for Searcher — leann vector search with metadata filters."""
+"""Tests for Searcher — search with internal map-filter."""
+import json
 from dataclasses import dataclass, field
+from unittest.mock import MagicMock
 from searcher import Searcher
 
 
@@ -11,112 +13,136 @@ class FakeSearchResult:
     metadata: dict = field(default_factory=dict)
 
 
-class FakeLeannSearcher:
-    """Mimics LeannSearcher.search()."""
-    def __init__(self, results: list[FakeSearchResult]):
+class FakeLeann:
+    def __init__(self, results):
         self.results = results
-        self.last_kwargs = {}
         self.last_query = None
 
-    def search(self, query, top_k=5, metadata_filters=None, **kwargs):
-        self.last_kwargs = {"query": query, "top_k": top_k, "metadata_filters": metadata_filters}
+    def search(self, query, top_k=5, **kwargs):
         self.last_query = query
-        if metadata_filters:
-            source_filter = metadata_filters.get("source", {})
-            contains = source_filter.get("contains", "")
-            if contains:
-                return [r for r in self.results if contains.lower() in r.metadata.get("source", "").lower()][:top_k]
         return self.results[:top_k]
 
 
-def _make_results(*texts, sources=None):
+def _make_model(responses):
+    model = MagicMock()
+    model.generate = MagicMock(side_effect=list(responses))
+    return model
+
+
+def _make_results(*texts, sources=None, scores=None):
     if sources is None:
-        sources = [f"file{i}.pdf" for i in range(len(texts))]
+        sources = [f"file{i}.txt" for i in range(len(texts))]
+    if scores is None:
+        scores = [0.95 - i * 0.05 for i in range(len(texts))]
     return [
-        FakeSearchResult(id=str(i), text=t, score=0.9 - i * 0.1, metadata={"source": sources[i]})
+        FakeSearchResult(
+            id=str(i), text=t, score=scores[i],
+            metadata={"file_name": sources[i]},
+        )
         for i, t in enumerate(texts)
     ]
 
 
-def test_search_basic():
-    results = _make_results("chunk1", "chunk2", "chunk3")
-    searcher = Searcher(FakeLeannSearcher(results))
-    plan = {"keywords": ["test"], "source_hint": None, "file_filter": None}
-    found = searcher.search(plan, top_k=5)
-    assert len(found) == 3
+def test_search_and_extract_returns_formatted_facts():
+    results = _make_results("Budget doc with $450k total")
+    model = _make_model([json.dumps({"relevant": True, "facts": ["Total Budget: $450,000"]})])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("budget")
+    assert "From file0.txt:" in output
+    assert "$450,000" in output
 
 
-def test_search_applies_source_hint():
-    results = _make_results("invoice data", "recipe data", sources=["Invoice_001.pdf", "recipe.txt"])
-    searcher = Searcher(FakeLeannSearcher(results))
-    plan = {"keywords": ["invoice"], "source_hint": "Invoice", "file_filter": None}
-    found = searcher.search(plan, top_k=5)
-    assert len(found) == 1
-    assert "Invoice" in found[0].metadata["source"]
+def test_search_no_results():
+    model = _make_model([])
+    leann = FakeLeann([])
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("quantum physics")
+    assert "No matching content" in output
 
 
-def test_search_applies_file_filter():
-    results = _make_results("data1", "data2", sources=["doc.pdf", "notes.txt"])
-    searcher = Searcher(FakeLeannSearcher(results))
-    plan = {"keywords": ["data"], "source_hint": None, "file_filter": "pdf"}
-    found = searcher.search(plan, top_k=5)
-    assert len(found) == 1
-    assert found[0].metadata["source"].endswith(".pdf")
-
-
-def test_search_source_hint_takes_precedence_over_file_filter():
-    results = _make_results("data", sources=["Invoice_001.pdf"])
-    searcher = Searcher(FakeLeannSearcher(results))
-    plan = {"keywords": ["invoice"], "source_hint": "Invoice", "file_filter": "pdf"}
-    found = searcher.search(plan, top_k=5)
-    assert len(found) == 1
-
-
-def test_search_unfiltered_fallback():
-    results = _make_results("chunk1", "chunk2")
-    searcher = Searcher(FakeLeannSearcher(results))
-    plan = {"keywords": ["test"]}
-    found = searcher.search_unfiltered(plan, top_k=5)
-    assert len(found) == 2
-
-
-def test_search_respects_top_k():
-    results = _make_results("a", "b", "c", "d", "e")
-    searcher = Searcher(FakeLeannSearcher(results))
-    plan = {"keywords": ["test"], "source_hint": None, "file_filter": None}
-    found = searcher.search(plan, top_k=2)
-    assert len(found) == 2
-
-
-def test_search_with_file_filter_paths():
-    results = _make_results("data1", "data2", "data3", sources=["a.pdf", "b.txt", "c.pdf"])
-    leann = FakeLeannSearcher(results)
-    searcher = Searcher(leann)
-    plan = {"keywords": ["data"], "source_hint": None, "file_filter": None}
-    found = searcher.search(plan, top_k=5, file_filter_paths=["/path/to/a.pdf", "/path/to/c.pdf"])
-    assert all("pdf" in r.metadata["source"] for r in found)
-
-
-def test_search_with_search_query_string():
-    """When search_query is provided, use it instead of joining keywords."""
-    leann = FakeLeannSearcher([
-        FakeSearchResult(id="1", text="budget data", score=0.9, metadata={"source": "budget.txt"}),
+def test_irrelevant_chunks_filtered():
+    results = _make_results("invoice data", "weather report")
+    model = _make_model([
+        json.dumps({"relevant": True, "facts": ["Invoice #123"]}),
+        json.dumps({"relevant": False, "facts": []}),
     ])
-    searcher = Searcher(leann)
-    plan = {"keywords": ["old", "keywords"], "file_filter": None, "source_hint": None}
-    results = searcher.search(plan, search_query="engineering department budget allocation")
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("invoices")
+    assert "Invoice #123" in output
+    assert "weather" not in output.lower()
 
-    assert len(results) == 1
-    assert leann.last_query == "engineering department budget allocation"
+
+def test_all_irrelevant_returns_message():
+    results = _make_results("random text")
+    model = _make_model([json.dumps({"relevant": False, "facts": []})])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("quantum")
+    assert "none were relevant" in output.lower()
 
 
-def test_search_without_search_query_uses_keywords():
-    """When no search_query provided, fall back to joining keywords."""
-    leann = FakeLeannSearcher([
-        FakeSearchResult(id="1", text="data", score=0.9, metadata={"source": "file.txt"}),
+def test_score_prefilter():
+    results = _make_results("good", "ok", "bad", scores=[0.95, 0.80, 0.50])
+    model = _make_model([
+        json.dumps({"relevant": True, "facts": ["fact1"]}),
+        json.dumps({"relevant": True, "facts": ["fact2"]}),
     ])
-    searcher = Searcher(leann)
-    plan = {"keywords": ["invoice", "payment"], "file_filter": None, "source_hint": None}
-    results = searcher.search(plan)
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("test")
+    assert model.generate.call_count == 2
 
-    assert leann.last_query == "invoice payment"
+
+def test_parse_failure_defaults_to_irrelevant():
+    results = _make_results("some text")
+    model = _make_model(["not valid json at all"])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("test")
+    assert "none were relevant" in output.lower()
+
+
+def test_file_name_used_as_source():
+    results = [FakeSearchResult(
+        id="42", text="budget data", score=0.9,
+        metadata={"file_name": "budget_q1_2026.txt"},
+    )]
+    model = _make_model([json.dumps({"relevant": True, "facts": ["Budget: $100k"]})])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("budget")
+    assert "budget_q1_2026.txt" in output
+
+
+def test_fallback_source_from_id():
+    results = [FakeSearchResult(id="99", text="data", score=0.9, metadata={})]
+    model = _make_model([json.dumps({"relevant": True, "facts": ["some fact"]})])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("test")
+    assert "99" in output
+
+
+def test_top_k_passed_to_leann():
+    leann = FakeLeann([])
+    model = _make_model([])
+    searcher = Searcher(leann, model)
+    searcher.search_and_extract("test", top_k=3)
+    assert leann.last_query == "test"
+
+
+def test_multiple_sources_grouped():
+    results = _make_results("data1", "data2", sources=["a.pdf", "b.pdf"])
+    model = _make_model([
+        json.dumps({"relevant": True, "facts": ["fact A"]}),
+        json.dumps({"relevant": True, "facts": ["fact B"]}),
+    ])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("test")
+    assert "From a.pdf:" in output
+    assert "From b.pdf:" in output
+    assert "fact A" in output
+    assert "fact B" in output
