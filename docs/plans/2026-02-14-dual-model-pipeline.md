@@ -106,6 +106,15 @@ def test_parse_json_nested_braces():
     result = parse_json(raw)
     assert result["keywords"] == ["test"]
     assert result["tool_actions"] == ["count"]
+
+
+def test_parse_json_full_planner_schema():
+    """Handle the full planner output with all fields."""
+    raw = 'Here is the JSON:\n{"keywords": ["invoice", "Anthropic"], "file_filter": "pdf", "source_hint": "Invoice", "tool": "semantic_search", "time_filter": null, "tool_actions": []}'
+    result = parse_json(raw)
+    assert result["keywords"] == ["invoice", "Anthropic"]
+    assert result["tool"] == "semantic_search"
+    assert result["tool_actions"] == []
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -137,8 +146,9 @@ def parse_json(text: str) -> dict | None:
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Try to find a JSON object in the text
-    match = re.search(r'\{[^{}]+\}', text)
+    # Try to find a JSON object in the text (DOTALL handles newlines,
+    # .*? is non-greedy but allows nested brackets/arrays)
+    match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
@@ -1761,7 +1771,334 @@ git commit -m "feat: add AgenticRAG pipeline orchestrator with three routing pat
 
 ---
 
-### Task 10: Update chat.py to use new pipeline
+### Task 10: Add conversation memory to pipeline
+
+**Files:**
+- Modify: `pipeline.py`
+- Modify: `planner.py`
+- Modify: `reducer.py`
+- Create: `tests/test_conversation_memory.py`
+
+**Context:** The 1.2B model treats each query independently. Follow-up questions like "aren't there more than 2?" fail because there's no context about the previous answer. A simple sliding window of the last 2-3 Q&A pairs fixes this.
+
+**Step 1: Write tests**
+
+Create `tests/test_conversation_memory.py`:
+
+```python
+"""Tests for conversation memory — follow-up queries use recent context."""
+import json
+from dataclasses import dataclass, field
+from pipeline import AgenticRAG
+
+
+@dataclass
+class FakeSearchResult:
+    id: str
+    text: str
+    score: float
+    metadata: dict = field(default_factory=dict)
+
+
+class FakeModelManager:
+    def __init__(self, plan_responses=None, extract_responses=None, synth_responses=None):
+        self.plan_responses = list(plan_responses or [])
+        self.extract_responses = list(extract_responses or [])
+        self.synth_responses = list(synth_responses or [])
+        self.plan_prompts = []
+        self.extract_prompts = []
+        self.synth_prompts = []
+
+    def plan(self, prompt):
+        self.plan_prompts.append(prompt)
+        return self.plan_responses.pop(0) if self.plan_responses else "{}"
+
+    def extract(self, prompt):
+        self.extract_prompts.append(prompt)
+        return self.extract_responses.pop(0) if self.extract_responses else "{}"
+
+    def synthesize(self, prompt):
+        self.synth_prompts.append(prompt)
+        return self.synth_responses.pop(0) if self.synth_responses else ""
+
+    def load(self):
+        pass
+
+
+class FakeLeannSearcher:
+    def __init__(self, results):
+        self.results = results
+
+    def search(self, query, top_k=5, metadata_filters=None, **kwargs):
+        return self.results[:top_k]
+
+
+def _make_results(*texts):
+    return [
+        FakeSearchResult(id=str(i), text=t, score=0.9, metadata={"source": f"f{i}.pdf"})
+        for i, t in enumerate(texts)
+    ]
+
+
+def test_conversation_history_included_in_planner_prompt():
+    """After first query, planner prompt should include conversation context."""
+    plan1 = json.dumps({
+        "keywords": ["invoice"], "file_filter": "pdf", "source_hint": None,
+        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
+    })
+    plan2 = json.dumps({
+        "keywords": ["invoice", "more"], "file_filter": "pdf", "source_hint": None,
+        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
+    })
+    map_resp = json.dumps({"relevant": True, "facts": ["Invoice #1", "Invoice #2"]})
+
+    models = FakeModelManager(
+        plan_responses=[plan1, plan2],
+        extract_responses=[map_resp, map_resp, map_resp],
+        synth_responses=["Found 2 invoices.", "Actually found 3 invoices."],
+    )
+    results = _make_results("Invoice #1 data", "Invoice #2 data")
+    leann = FakeLeannSearcher(results)
+    rag = AgenticRAG(models=models, leann_searcher=leann, data_dir="/tmp/test")
+
+    # First query
+    rag.ask("any invoices?")
+
+    # Second query — planner should see conversation history
+    rag.ask("aren't there more than 2?")
+
+    # The second planner prompt should contain the first Q&A
+    second_plan_prompt = models.plan_prompts[1]
+    assert "any invoices?" in second_plan_prompt or "invoices" in second_plan_prompt.lower()
+    assert "Found 2 invoices" in second_plan_prompt
+
+
+def test_conversation_history_included_in_reduce_prompt():
+    """Reduce prompt should include conversation context for follow-ups."""
+    plan_resp = json.dumps({
+        "keywords": ["invoice"], "file_filter": None, "source_hint": None,
+        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
+    })
+    map_resp = json.dumps({"relevant": True, "facts": ["Invoice data"]})
+
+    models = FakeModelManager(
+        plan_responses=[plan_resp, plan_resp],
+        extract_responses=[map_resp, map_resp],
+        synth_responses=["Found 2 invoices.", "There are actually 3."],
+    )
+    results = _make_results("Invoice data")
+    leann = FakeLeannSearcher(results)
+    rag = AgenticRAG(models=models, leann_searcher=leann, data_dir="/tmp/test")
+
+    rag.ask("any invoices?")
+    rag.ask("tell me more about them")
+
+    # Reduce prompt for second query should have conversation context
+    second_synth_prompt = models.synth_prompts[1]
+    assert "any invoices?" in second_synth_prompt
+    assert "Found 2 invoices" in second_synth_prompt
+
+
+def test_conversation_history_max_window():
+    """Only the last N exchanges are kept."""
+    plan_resp = json.dumps({
+        "keywords": ["test"], "file_filter": None, "source_hint": None,
+        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
+    })
+    map_resp = json.dumps({"relevant": True, "facts": ["fact"]})
+
+    # 5 queries, window of 3
+    models = FakeModelManager(
+        plan_responses=[plan_resp] * 5,
+        extract_responses=[map_resp] * 5,
+        synth_responses=[f"Answer {i}" for i in range(5)],
+    )
+    results = _make_results("data")
+    leann = FakeLeannSearcher(results)
+    rag = AgenticRAG(models=models, leann_searcher=leann, data_dir="/tmp/test", history_window=3)
+
+    for i in range(5):
+        rag.ask(f"query {i}")
+
+    # The 5th planner prompt should have queries 1-3 (not query 0)
+    last_plan_prompt = models.plan_prompts[4]
+    assert "query 0" not in last_plan_prompt
+    assert "query 1" in last_plan_prompt or "query 2" in last_plan_prompt
+
+
+def test_empty_history_on_first_query():
+    """First query should work fine with no history."""
+    plan_resp = json.dumps({
+        "keywords": ["test"], "file_filter": None, "source_hint": None,
+        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
+    })
+    map_resp = json.dumps({"relevant": True, "facts": ["fact"]})
+
+    models = FakeModelManager(
+        plan_responses=[plan_resp],
+        extract_responses=[map_resp],
+        synth_responses=["answer"],
+    )
+    results = _make_results("data")
+    leann = FakeLeannSearcher(results)
+    rag = AgenticRAG(models=models, leann_searcher=leann, data_dir="/tmp/test")
+
+    answer = rag.ask("first question")
+    assert answer  # no crash
+    # Planner prompt should NOT have "Recent conversation" header
+    assert "Recent conversation" not in models.plan_prompts[0]
+```
+
+**Step 2: Run tests to verify they fail**
+
+Run: `cd /Users/ded/Projects/assist/manole && uv run pytest tests/test_conversation_memory.py -v`
+Expected: FAIL — `AgenticRAG` doesn't accept `history_window` param yet, and no conversation context in prompts.
+
+**Step 3: Add history to AgenticRAG (pipeline.py)**
+
+Add a conversation history list and pass it to planner and reducer:
+
+In `pipeline.py`, update `AgenticRAG.__init__`:
+
+```python
+def __init__(
+    self,
+    models,
+    leann_searcher,
+    data_dir: str,
+    top_k: int = 5,
+    debug: bool = False,
+    history_window: int = 3,
+):
+    # ... existing init ...
+    self.history: list[tuple[str, str]] = []  # (query, answer) pairs
+    self.history_window = history_window
+```
+
+In `AgenticRAG.ask`, after producing the final answer, append to history:
+
+```python
+def ask(self, query: str) -> str:
+    t0 = time.time()
+
+    # Build conversation context for planner and reducer
+    context = self._build_context()
+
+    # Stage 1: Plan (with conversation context)
+    plan = self.planner.plan(query, context=context)
+    # ... rest of pipeline ...
+
+    # After getting final answer:
+    self.history.append((query, answer))
+    if len(self.history) > self.history_window:
+        self.history = self.history[-self.history_window:]
+
+    return answer
+```
+
+Add helper method:
+
+```python
+def _build_context(self) -> str:
+    """Build conversation context string from recent history."""
+    if not self.history:
+        return ""
+    lines = ["Recent conversation:"]
+    for q, a in self.history:
+        lines.append(f"  User: {q}")
+        lines.append(f"  Assistant: {a[:200]}")  # truncate long answers
+    return "\n".join(lines)
+```
+
+**Step 4: Update Planner to accept context**
+
+In `planner.py`, update `Planner.plan`:
+
+```python
+def plan(self, query: str, context: str = "") -> dict:
+    context_block = f"\n{context}\n\n" if context else ""
+    prompt = PLANNER_PROMPT.format(query=query, context=context_block)
+    # ... rest unchanged ...
+```
+
+Update `PLANNER_PROMPT` to include `{context}` placeholder:
+
+```python
+PLANNER_PROMPT = (
+    "Extract search parameters from the user's question as JSON.\n"
+    "{context}"
+    # ... rest of prompt ...
+    "Question: {query}\n"
+    "JSON:"
+)
+```
+
+**Step 5: Update Reducer to accept context**
+
+In `reducer.py`, update `Reducer.synthesize`:
+
+```python
+def synthesize(self, query: str, relevant: list[dict], context: str = "") -> str:
+    if not relevant:
+        return "No relevant information found."
+
+    facts_list = ""
+    for item in relevant:
+        source = item.get("source", "?")
+        facts_list += f"\nFrom {source}:\n"
+        for fact in item["facts"]:
+            facts_list += f"  - {fact}\n"
+
+    context_block = f"\n{context}\n" if context else ""
+    prompt = REDUCE_PROMPT.format(facts_list=facts_list, query=query, context=context_block)
+    # ... rest unchanged ...
+```
+
+Update `REDUCE_PROMPT`:
+
+```python
+REDUCE_PROMPT = (
+    "Here are facts extracted from the user's files:\n"
+    "{facts_list}\n"
+    "{context}\n"
+    "Question: {query}\n\n"
+    "Using ONLY these facts, write a concise answer. "
+    'If the facts don\'t answer the question, say "No relevant information found."\n\n'
+    "Answer:\n"
+)
+```
+
+**Step 6: Update pipeline.py ask() to thread context through**
+
+Pass `context` to both `planner.plan()` and `reducer.synthesize()`:
+
+```python
+context = self._build_context()
+plan = self.planner.plan(query, context=context)
+# ... search, map, filter ...
+answer = self.reducer.synthesize(query, relevant, context=context)
+```
+
+**Step 7: Run tests to verify they pass**
+
+Run: `cd /Users/ded/Projects/assist/manole && uv run pytest tests/test_conversation_memory.py -v`
+Expected: All 4 tests PASS.
+
+**Step 8: Run full test suite**
+
+Run: `cd /Users/ded/Projects/assist/manole && uv run pytest tests/ -v --ignore=tests/test_agentic_rag.py`
+Expected: All tests PASS (existing pipeline tests still work since `context` defaults to `""`).
+
+**Step 9: Commit**
+
+```bash
+git add pipeline.py planner.py reducer.py tests/test_conversation_memory.py
+git commit -m "feat: add sliding-window conversation memory for follow-up queries"
+```
+
+---
+
+### Task 11: Update chat.py to use new pipeline
 
 **Files:**
 - Modify: `chat.py`
@@ -1880,7 +2217,7 @@ git commit -m "refactor: slim chat.py to thin CLI shell, delegate to pipeline.py
 
 ---
 
-### Task 11: Clean up old test file
+### Task 12: Clean up old test file
 
 **Files:**
 - Delete or rename: `tests/test_agentic_rag.py`
@@ -1906,7 +2243,7 @@ git commit -m "chore: remove old monolithic agentic RAG tests"
 
 ---
 
-### Task 12: Download GGUF models and smoke test
+### Task 13: Download GGUF models and smoke test
 
 **Files:**
 - Create: `models/` directory
@@ -1973,6 +2310,7 @@ Try these queries:
 1. `"any invoices?"` — should route to semantic_search
 2. `"how many PDF files?"` — should route to filesystem
 3. `"summarize files modified today"` — should route to hybrid
+4. `"any invoices?"` then `"aren't there more than 2?"` — follow-up should use conversation context
 
 **Step 6: Commit**
 
@@ -1988,7 +2326,7 @@ git commit -m "chore: add models/ to gitignore for GGUF files"
 | Task | Description | New Files | Test Count |
 |------|-------------|-----------|------------|
 | 1 | Add llama-cpp-python dep | — | 0 |
-| 2 | Extract parser.py | parser.py, tests/test_parser.py | 9 |
+| 2 | Extract parser.py | parser.py, tests/test_parser.py | 10 |
 | 3 | Build ModelManager | models.py, tests/test_models.py | 5 |
 | 4 | Build Planner | planner.py, tests/test_planner.py | 6 |
 | 5 | Build Smart ToolBox | toolbox.py, tests/test_toolbox.py | 16 |
@@ -1996,7 +2334,8 @@ git commit -m "chore: add models/ to gitignore for GGUF files"
 | 7 | Build Mapper | mapper.py, tests/test_mapper.py | 6 |
 | 8 | Build Reducer | reducer.py, tests/test_reducer.py | 12 |
 | 9 | Build Pipeline | pipeline.py, tests/test_pipeline.py | 6 |
-| 10 | Update chat.py | — | 0 |
-| 11 | Clean up old tests | — | 0 |
-| 12 | Download models + smoke test | — | 0 |
-| **Total** | | **16 new files** | **~67 tests** |
+| 10 | Conversation memory | tests/test_conversation_memory.py | 4 |
+| 11 | Update chat.py | — | 0 |
+| 12 | Clean up old tests | — | 0 |
+| 13 | Download models + smoke test | — | 0 |
+| **Total** | | **17 new files** | **~72 tests** |
