@@ -1,59 +1,96 @@
 """Tests for ModelManager dual-model loading."""
-from unittest.mock import patch, MagicMock
-from models import ModelManager
+from unittest.mock import MagicMock
+from models import ModelManager, _messages
 
 
-def test_model_manager_has_plan_method():
+def _mock_chat_response(text: str) -> dict:
+    return {"choices": [{"message": {"content": text}}]}
+
+
+def test_model_manager_has_methods():
     mgr = ModelManager.__new__(ModelManager)
-    mgr.planner_model = None
-    mgr.rag_model = None
+    mgr.extract_model = None
+    mgr.instruct_model = None
     assert hasattr(mgr, "plan")
+    assert hasattr(mgr, "map_chunk")
     assert hasattr(mgr, "extract")
     assert hasattr(mgr, "synthesize")
 
 
-def test_plan_calls_planner_model():
+def test_messages_format():
+    msgs = _messages("sys prompt", "user msg")
+    assert msgs[0] == {"role": "system", "content": "sys prompt"}
+    assert msgs[1] == {"role": "user", "content": "user msg"}
+
+
+def test_plan_calls_instruct_model():
     mgr = ModelManager.__new__(ModelManager)
     mock_model = MagicMock()
-    mock_model.return_value = {"choices": [{"text": '{"keywords": ["test"]}'}]}
-    mgr.planner_model = mock_model
-    mgr.rag_model = None
+    mock_model.create_chat_completion.return_value = _mock_chat_response('{"keywords": ["test"]}')
+    mgr.instruct_model = mock_model
+    mgr.extract_model = MagicMock()
 
-    result = mgr.plan("test prompt")
-    mock_model.assert_called_once()
+    result = mgr.plan("system", "user")
+    mock_model.create_chat_completion.assert_called_once()
     assert '{"keywords": ["test"]}' in result
 
 
-def test_extract_calls_rag_model():
-    mgr = ModelManager.__new__(ModelManager)
-    mgr.planner_model = None
-    mock_model = MagicMock()
-    mock_model.return_value = {"choices": [{"text": '{"relevant": true}'}]}
-    mgr.rag_model = mock_model
-
-    result = mgr.extract("test prompt")
-    mock_model.assert_called_once()
-
-
-def test_synthesize_calls_rag_model():
-    mgr = ModelManager.__new__(ModelManager)
-    mgr.planner_model = None
-    mock_model = MagicMock()
-    mock_model.return_value = {"choices": [{"text": "The answer is 42."}]}
-    mgr.rag_model = mock_model
-
-    result = mgr.synthesize("test prompt")
-    mock_model.assert_called_once()
-
-
-def test_plan_max_tokens_is_256():
-    """Planner should use small max_tokens for JSON output."""
+def test_map_chunk_calls_instruct_model():
     mgr = ModelManager.__new__(ModelManager)
     mock_model = MagicMock()
-    mock_model.return_value = {"choices": [{"text": "{}"}]}
-    mgr.planner_model = mock_model
-    mgr.rag_model = None
+    mock_model.create_chat_completion.return_value = _mock_chat_response('{"relevant": true}')
+    mgr.instruct_model = mock_model
+    mgr.extract_model = MagicMock()
 
-    mgr.plan("test")
-    call_kwargs = mock_model.call_args
-    assert call_kwargs[1].get("max_tokens") == 256 or call_kwargs.kwargs.get("max_tokens") == 256
+    result = mgr.map_chunk("system", "user")
+    mock_model.create_chat_completion.assert_called_once()
+
+
+def test_extract_calls_extract_model():
+    mgr = ModelManager.__new__(ModelManager)
+    mock_model = MagicMock()
+    mock_model.create_chat_completion.return_value = _mock_chat_response('{"field": "value"}')
+    mgr.extract_model = mock_model
+    mgr.instruct_model = MagicMock()
+
+    result = mgr.extract("system", "user")
+    mock_model.create_chat_completion.assert_called_once()
+
+
+def test_synthesize_calls_instruct_model():
+    mgr = ModelManager.__new__(ModelManager)
+    mgr.extract_model = MagicMock()
+    mock_model = MagicMock()
+    mock_model.create_chat_completion.return_value = _mock_chat_response("The answer is 42.")
+    mgr.instruct_model = mock_model
+
+    result = mgr.synthesize("system", "user")
+    mock_model.create_chat_completion.assert_called_once()
+
+
+def test_messages_passed_correctly():
+    mgr = ModelManager.__new__(ModelManager)
+    mock_model = MagicMock()
+    mock_model.create_chat_completion.return_value = _mock_chat_response("{}")
+    mgr.instruct_model = mock_model
+    mgr.extract_model = MagicMock()
+
+    mgr.plan("my system", "my user")
+    call_kwargs = mock_model.create_chat_completion.call_args
+    messages = call_kwargs.kwargs.get("messages") or call_kwargs[1].get("messages")
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"] == "my system"
+    assert messages[1]["role"] == "user"
+    assert messages[1]["content"] == "my user"
+
+
+def test_rewrite_calls_instruct_model():
+    mgr = ModelManager.__new__(ModelManager)
+    mock_model = MagicMock()
+    mock_model.create_chat_completion.return_value = _mock_chat_response('{"intent": "factual"}')
+    mgr.instruct_model = mock_model
+    mgr.extract_model = MagicMock()
+
+    result = mgr.rewrite("system", "user")
+    mock_model.create_chat_completion.assert_called_once()
+    assert "factual" in result

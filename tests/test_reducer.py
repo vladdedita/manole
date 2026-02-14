@@ -1,20 +1,22 @@
 """Tests for Reducer — answer synthesis and confidence checking."""
-from reducer import Reducer, REDUCE_PROMPT, confidence_score
+from reducer import Reducer, REDUCE_SYSTEM, confidence_score
 
 
 class FakeModelManager:
     def __init__(self, responses: list[str]):
         self.responses = list(responses)
-        self.prompts = []
+        self.system_prompts = []
+        self.user_prompts = []
 
-    def synthesize(self, prompt: str) -> str:
-        self.prompts.append(prompt)
+    def synthesize(self, system: str, user: str) -> str:
+        self.system_prompts.append(system)
+        self.user_prompts.append(user)
         return self.responses.pop(0) if self.responses else ""
 
 
-def test_reduce_prompt_contains_placeholders():
-    assert "{facts_list}" in REDUCE_PROMPT
-    assert "{query}" in REDUCE_PROMPT
+def test_reduce_system_contains_instructions():
+    assert "facts" in REDUCE_SYSTEM.lower()
+    assert "concise" in REDUCE_SYSTEM.lower()
 
 
 def test_synthesize_from_facts():
@@ -35,14 +37,14 @@ def test_synthesize_no_relevant_returns_message():
     assert "No relevant" in answer
 
 
-def test_synthesize_prompt_includes_sources():
+def test_synthesize_user_prompt_includes_sources():
     models = FakeModelManager(["answer"])
     reducer = Reducer(models)
     relevant = [
         {"relevant": True, "facts": ["fact1"], "source": "report.pdf"},
     ]
     reducer.synthesize("query", relevant)
-    assert "report.pdf" in models.prompts[0]
+    assert "report.pdf" in models.user_prompts[0]
 
 
 def test_confidence_score_high_overlap():

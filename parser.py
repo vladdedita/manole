@@ -17,14 +17,18 @@ def parse_json(text: str) -> dict | None:
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Try to find a JSON object in the text (DOTALL handles newlines,
-    # .*? is non-greedy but allows nested brackets/arrays)
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except (json.JSONDecodeError, ValueError):
-            pass
+    # Try each { as a potential JSON start, parse greedily from there
+    for i, ch in enumerate(text):
+        if ch == '{':
+            # Find the last } after this position
+            last_brace = text.rfind('}', i)
+            while last_brace > i:
+                try:
+                    return json.loads(text[i:last_brace + 1])
+                except (json.JSONDecodeError, ValueError):
+                    # Shrink: try the next } inward
+                    last_brace = text.rfind('}', i, last_brace)
+            break  # only try the first { — that's where the real JSON is
 
     # Fallback: extract "relevant" field via regex
     rel_match = re.search(r'"relevant"\s*:\s*(true|false)', text, re.IGNORECASE)

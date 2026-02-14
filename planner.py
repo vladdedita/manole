@@ -1,64 +1,67 @@
 """Stage 1: Planner — extract structured search parameters from user queries."""
 from parser import parse_json
 
-PLANNER_PROMPT = (
-    "Extract search parameters from the user's question as JSON.\n"
-    "{context}"
+PLANNER_SYSTEM = (
+    "You extract search parameters from questions as JSON. "
+    "ALWAYS reply with JSON only, never answer the question.\n"
     "\n"
     "Output fields:\n"
-    '- "keywords": list of 2-4 search terms\n'
+    '- "keywords": list of 2-4 search terms from the question (include ALL important nouns)\n'
     '- "file_filter": file extension like "pdf", "txt", "py", or null\n'
     '- "source_hint": filename substring to filter by, or null\n'
-    '- "tool": "semantic_search", "filesystem", or "hybrid"\n'
-    '- "time_filter": "today", "this_week", "this_month", or null\n'
-    '- "tool_actions": list from ["count", "list_recent", "metadata", "tree", "grep"], or []\n'
+    '- "tool": "semantic_search" or "filesystem"\n'
+    "\n"
+    "Rules:\n"
+    "- Use filesystem ONLY for counting files, listing directories, or file metadata\n"
+    "- Use semantic_search for everything else\n"
+    "- Include ALL important nouns as keywords\n"
     "\n"
     "Examples:\n\n"
-    'Question: "find my Anthropic invoices"\n'
-    'JSON: {{"keywords": ["invoice", "Anthropic"], "file_filter": "pdf", '
-    '"source_hint": "Invoice", "tool": "semantic_search", '
-    '"time_filter": null, "tool_actions": []}}\n\n'
+    'Question: "find invoices"\n'
+    '{"keywords": ["invoice"], "file_filter": "pdf", '
+    '"source_hint": null, "tool": "semantic_search"}\n\n'
     'Question: "how many PDF files do I have?"\n'
-    'JSON: {{"keywords": ["PDF", "files", "count"], "file_filter": "pdf", '
-    '"source_hint": null, "tool": "filesystem", '
-    '"time_filter": null, "tool_actions": ["count"]}}\n\n'
-    'Question: "summarize files I modified today"\n'
-    'JSON: {{"keywords": ["modified", "today", "summary"], "file_filter": null, '
-    '"source_hint": null, "tool": "hybrid", '
-    '"time_filter": "today", "tool_actions": ["list_recent"]}}\n\n'
-    'Question: "what is my folder structure?"\n'
-    'JSON: {{"keywords": ["folder", "structure", "directory"], "file_filter": null, '
-    '"source_hint": null, "tool": "filesystem", '
-    '"time_filter": null, "tool_actions": ["tree"]}}\n\n'
-    'Question: "notes about machine learning"\n'
-    'JSON: {{"keywords": ["machine learning", "notes", "AI"], "file_filter": null, '
-    '"source_hint": null, "tool": "semantic_search", '
-    '"time_filter": null, "tool_actions": []}}\n\n'
-    "Question: {query}\n"
-    "JSON:"
+    '{"keywords": ["PDF", "files", "count"], "file_filter": "pdf", '
+    '"source_hint": null, "tool": "filesystem"}\n\n'
+    'Question: "what is the engineering department budget?"\n'
+    '{"keywords": ["engineering", "department", "budget"], "file_filter": null, '
+    '"source_hint": null, "tool": "semantic_search"}\n\n'
+    "Reply with a single JSON object only. Do not explain."
 )
+
+_STOP_WORDS = frozenset(
+    "a an the is are was were do does did in on at to for of and or any my"
+    " how many what which where when who some all this that it me we have"
+    " give list show find get".split()
+)
+
+
+def _keywords_from_query(query: str) -> list[str]:
+    """Extract meaningful keywords from raw query text as fallback."""
+    words = [w.strip("?!.,/") for w in query.lower().split()]
+    return [w for w in words if w and w not in _STOP_WORDS][:4]
+
 
 _DEFAULT_PLAN = {
     "keywords": [],
     "file_filter": None,
     "source_hint": None,
     "tool": "semantic_search",
-    "time_filter": None,
-    "tool_actions": [],
 }
 
 
 class Planner:
-    """Extracts structured search plan from user queries using 350M-Extract model."""
+    """Extracts structured search plan from user queries using 1.2B-RAG model."""
 
     def __init__(self, models, debug: bool = False):
         self.models = models
         self.debug = debug
 
     def plan(self, query: str, context: str = "") -> dict:
-        context_block = f"\n{context}\n\n" if context else ""
-        prompt = PLANNER_PROMPT.format(query=query, context=context_block)
-        raw = self.models.plan(prompt)
+        user_msg = query
+        if context:
+            user_msg = f"{context}\n\nQuestion: {query}"
+        raw = self.models.plan(PLANNER_SYSTEM, user_msg)
 
         if self.debug:
             print(f"  [PLAN] Raw: {raw}")
@@ -66,21 +69,32 @@ class Planner:
         parsed = parse_json(raw)
         if parsed is None:
             if self.debug:
-                print("  [PLAN] Parse failed, using defaults")
-            return dict(_DEFAULT_PLAN)
+                print("  [PLAN] Parse failed, using query keywords")
+            fallback = dict(_DEFAULT_PLAN)
+            fallback["keywords"] = _keywords_from_query(query)
+            return fallback
 
         # Fill in missing fields with defaults
         result = {}
         for key, default in _DEFAULT_PLAN.items():
             result[key] = parsed.get(key, default)
 
+        # Validate keywords — use query fallback if empty/invalid
+        kw = result.get("keywords", [])
+        if not isinstance(kw, list) or not all(isinstance(k, str) for k in kw):
+            kw = []
+        if not kw:
+            kw = _keywords_from_query(query)
+        result["keywords"] = kw
+
         # Validate tool field
-        if result["tool"] not in ("semantic_search", "filesystem", "hybrid"):
+        if result["tool"] not in ("semantic_search", "filesystem"):
             result["tool"] = "semantic_search"
 
-        # Validate time_filter
-        if result["time_filter"] not in ("today", "this_week", "this_month", None):
-            result["time_filter"] = None
+        # Fix string "null" → None for nullable fields
+        for key in ("file_filter", "source_hint"):
+            if result.get(key) == "null":
+                result[key] = None
 
         if self.debug:
             print(f"  [PLAN] {result}")

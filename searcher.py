@@ -16,8 +16,8 @@ class Searcher:
             return {"source": {"contains": f".{file_filter}"}}
         return None
 
-    def search(self, plan: dict, top_k: int = 5, file_filter_paths: list[str] | None = None) -> list:
-        query = " ".join(plan.get("keywords", []))
+    def search(self, plan: dict, top_k: int = 5, search_query: str | None = None, file_filter_paths: list[str] | None = None) -> list:
+        query = search_query or " ".join(plan.get("keywords", []))
         if not query:
             query = "document"
         metadata_filters = self._build_filters(plan)
@@ -30,8 +30,8 @@ class Searcher:
             ]
         return results
 
-    def search_unfiltered(self, plan: dict, top_k: int = 5) -> list:
-        query = " ".join(plan.get("keywords", []))
+    def search_unfiltered(self, plan: dict, top_k: int = 5, search_query: str | None = None) -> list:
+        query = search_query or " ".join(plan.get("keywords", []))
         if not query:
             query = "document"
         return self.leann.search(query, top_k=top_k)

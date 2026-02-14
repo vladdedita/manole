@@ -16,9 +16,11 @@ class FakeLeannSearcher:
     def __init__(self, results: list[FakeSearchResult]):
         self.results = results
         self.last_kwargs = {}
+        self.last_query = None
 
     def search(self, query, top_k=5, metadata_filters=None, **kwargs):
         self.last_kwargs = {"query": query, "top_k": top_k, "metadata_filters": metadata_filters}
+        self.last_query = query
         if metadata_filters:
             source_filter = metadata_filters.get("source", {})
             contains = source_filter.get("contains", "")
@@ -93,3 +95,28 @@ def test_search_with_file_filter_paths():
     plan = {"keywords": ["data"], "source_hint": None, "file_filter": None}
     found = searcher.search(plan, top_k=5, file_filter_paths=["/path/to/a.pdf", "/path/to/c.pdf"])
     assert all("pdf" in r.metadata["source"] for r in found)
+
+
+def test_search_with_search_query_string():
+    """When search_query is provided, use it instead of joining keywords."""
+    leann = FakeLeannSearcher([
+        FakeSearchResult(id="1", text="budget data", score=0.9, metadata={"source": "budget.txt"}),
+    ])
+    searcher = Searcher(leann)
+    plan = {"keywords": ["old", "keywords"], "file_filter": None, "source_hint": None}
+    results = searcher.search(plan, search_query="engineering department budget allocation")
+
+    assert len(results) == 1
+    assert leann.last_query == "engineering department budget allocation"
+
+
+def test_search_without_search_query_uses_keywords():
+    """When no search_query provided, fall back to joining keywords."""
+    leann = FakeLeannSearcher([
+        FakeSearchResult(id="1", text="data", score=0.9, metadata={"source": "file.txt"}),
+    ])
+    searcher = Searcher(leann)
+    plan = {"keywords": ["invoice", "payment"], "file_filter": None, "source_hint": None}
+    results = searcher.search(plan)
+
+    assert leann.last_query == "invoice payment"

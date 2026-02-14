@@ -21,20 +21,29 @@ class FakeModelManager:
         self.extract_prompts = []
         self.synth_prompts = []
 
-    def plan(self, prompt):
-        self.plan_prompts.append(prompt)
+    def plan(self, system, user):
+        self.plan_prompts.append(user)
         return self.plan_responses.pop(0) if self.plan_responses else "{}"
 
-    def extract(self, prompt):
-        self.extract_prompts.append(prompt)
+    def map_chunk(self, system, user):
+        self.extract_prompts.append(user)
         return self.extract_responses.pop(0) if self.extract_responses else "{}"
 
-    def synthesize(self, prompt):
-        self.synth_prompts.append(prompt)
+    def synthesize(self, system, user):
+        self.synth_prompts.append(user)
         return self.synth_responses.pop(0) if self.synth_responses else ""
 
     def load(self):
         pass
+
+    def rewrite(self, system, user):
+        """Default: pass-through rewrite (no expansion)."""
+        query = user.split("Question: ")[-1] if "Question: " in user else user
+        return json.dumps({
+            "intent": "factual",
+            "search_query": query,
+            "resolved_query": query,
+        })
 
 
 class FakeLeannSearcher:
@@ -56,12 +65,10 @@ def test_conversation_history_included_in_planner_prompt():
     """After first query, planner prompt should include conversation context."""
     plan1 = json.dumps({
         "keywords": ["invoice"], "file_filter": "pdf", "source_hint": None,
-        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
-    })
+        "tool": "semantic_search",     })
     plan2 = json.dumps({
         "keywords": ["invoice", "more"], "file_filter": "pdf", "source_hint": None,
-        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
-    })
+        "tool": "semantic_search",     })
     map_resp = json.dumps({"relevant": True, "facts": ["Invoice #1", "Invoice #2"]})
 
     models = FakeModelManager(
@@ -79,7 +86,7 @@ def test_conversation_history_included_in_planner_prompt():
     # Second query — planner should see conversation history
     rag.ask("aren't there more than 2?")
 
-    # The second planner prompt should contain the first Q&A
+    # The second planner prompt (user msg) should contain the first Q&A
     second_plan_prompt = models.plan_prompts[1]
     assert "any invoices?" in second_plan_prompt or "invoices" in second_plan_prompt.lower()
     assert "Found 2 invoices" in second_plan_prompt
@@ -89,8 +96,7 @@ def test_conversation_history_included_in_reduce_prompt():
     """Reduce prompt should include conversation context for follow-ups."""
     plan_resp = json.dumps({
         "keywords": ["invoice"], "file_filter": None, "source_hint": None,
-        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
-    })
+        "tool": "semantic_search",     })
     map_resp = json.dumps({"relevant": True, "facts": ["Invoice data"]})
 
     models = FakeModelManager(
@@ -115,8 +121,7 @@ def test_conversation_history_max_window():
     """Only the last N exchanges are kept."""
     plan_resp = json.dumps({
         "keywords": ["test"], "file_filter": None, "source_hint": None,
-        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
-    })
+        "tool": "semantic_search",     })
     map_resp = json.dumps({"relevant": True, "facts": ["fact"]})
 
     # 5 queries, window of 3
@@ -142,8 +147,7 @@ def test_empty_history_on_first_query():
     """First query should work fine with no history."""
     plan_resp = json.dumps({
         "keywords": ["test"], "file_filter": None, "source_hint": None,
-        "tool": "semantic_search", "time_filter": None, "tool_actions": [],
-    })
+        "tool": "semantic_search",     })
     map_resp = json.dumps({"relevant": True, "facts": ["fact"]})
 
     models = FakeModelManager(

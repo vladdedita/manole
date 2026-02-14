@@ -88,14 +88,13 @@ def chat_loop(index_name: str, data_dir: str):
     models.load()
 
     # Create leann searcher for vector search
-    leann_searcher = LeannSearcher(index_path)
+    leann_searcher = LeannSearcher(index_path, enable_warmup=True)
 
     # Create pipeline
     rag = AgenticRAG(
         models=models,
         leann_searcher=leann_searcher,
         data_dir=data_dir,
-        top_k=5,
         debug=True,
     )
 
