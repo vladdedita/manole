@@ -87,30 +87,3 @@ class ToolBox:
         lines = [f"  - {f.relative_to(self.root)}" for f in matches[:20]]
         return f"Files matching '{pattern}':\n" + "\n".join(lines)
 
-    def execute(self, plan: dict) -> str:
-        actions = plan.get("tool_actions", [])
-        ext = plan.get("file_filter")
-        time_f = plan.get("time_filter")
-        source = plan.get("source_hint")
-        results = []
-        for action in actions:
-            if action == "count":
-                results.append(self.count_files(ext, time_f))
-            elif action == "list_recent":
-                results.append(self.list_recent_files(ext, time_f))
-            elif action == "metadata":
-                results.append(self.get_file_metadata(source))
-            elif action == "tree":
-                results.append(self.tree())
-            elif action == "grep":
-                if source:
-                    results.append(self.grep(source))
-        if not results:
-            results.append(self.list_recent_files(ext, time_f))
-        return "\n\n".join(results)
-
-    def get_matching_files(self, plan: dict) -> list[str]:
-        ext = plan.get("file_filter")
-        time_f = plan.get("time_filter")
-        files = self._list_files(ext, time_f)
-        return [str(f) for f in files]
