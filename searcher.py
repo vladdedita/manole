@@ -62,6 +62,8 @@ class Searcher:
         for key, val in meta.items():
             if key not in ("source", "file_name", "file_path", "id") and val is not None:
                 context_parts.append(f"{key}: {val}")
+        context_parts.append(f"Chunk: {chunk.id}")
+        context_parts.append(f"Relevance score: {chunk.score:.2f}")
         context = " | ".join(context_parts)
 
         messages = [
