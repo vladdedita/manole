@@ -1,96 +1,62 @@
-"""Tests for ModelManager dual-model loading."""
+"""Tests for ModelManager single-model interface."""
 from unittest.mock import MagicMock
-from models import ModelManager, _messages
+from models import ModelManager
 
 
 def _mock_chat_response(text: str) -> dict:
     return {"choices": [{"message": {"content": text}}]}
 
 
-def test_model_manager_has_methods():
-    mgr = ModelManager.__new__(ModelManager)
-    mgr.extract_model = None
-    mgr.instruct_model = None
-    assert hasattr(mgr, "plan")
-    assert hasattr(mgr, "map_chunk")
-    assert hasattr(mgr, "extract")
-    assert hasattr(mgr, "synthesize")
-
-
-def test_messages_format():
-    msgs = _messages("sys prompt", "user msg")
-    assert msgs[0] == {"role": "system", "content": "sys prompt"}
-    assert msgs[1] == {"role": "user", "content": "user msg"}
-
-
-def test_plan_calls_instruct_model():
+def test_generate_calls_model():
     mgr = ModelManager.__new__(ModelManager)
     mock_model = MagicMock()
-    mock_model.create_chat_completion.return_value = _mock_chat_response('{"keywords": ["test"]}')
-    mgr.instruct_model = mock_model
-    mgr.extract_model = MagicMock()
-
-    result = mgr.plan("system", "user")
+    mock_model.create_chat_completion.return_value = _mock_chat_response("hello")
+    mgr.model = mock_model
+    result = mgr.generate([{"role": "user", "content": "hi"}])
     mock_model.create_chat_completion.assert_called_once()
-    assert '{"keywords": ["test"]}' in result
+    assert result == "hello"
 
 
-def test_map_chunk_calls_instruct_model():
+def test_generate_passes_messages():
     mgr = ModelManager.__new__(ModelManager)
     mock_model = MagicMock()
-    mock_model.create_chat_completion.return_value = _mock_chat_response('{"relevant": true}')
-    mgr.instruct_model = mock_model
-    mgr.extract_model = MagicMock()
-
-    result = mgr.map_chunk("system", "user")
-    mock_model.create_chat_completion.assert_called_once()
-
-
-def test_extract_calls_extract_model():
-    mgr = ModelManager.__new__(ModelManager)
-    mock_model = MagicMock()
-    mock_model.create_chat_completion.return_value = _mock_chat_response('{"field": "value"}')
-    mgr.extract_model = mock_model
-    mgr.instruct_model = MagicMock()
-
-    result = mgr.extract("system", "user")
-    mock_model.create_chat_completion.assert_called_once()
-
-
-def test_synthesize_calls_instruct_model():
-    mgr = ModelManager.__new__(ModelManager)
-    mgr.extract_model = MagicMock()
-    mock_model = MagicMock()
-    mock_model.create_chat_completion.return_value = _mock_chat_response("The answer is 42.")
-    mgr.instruct_model = mock_model
-
-    result = mgr.synthesize("system", "user")
-    mock_model.create_chat_completion.assert_called_once()
-
-
-def test_messages_passed_correctly():
-    mgr = ModelManager.__new__(ModelManager)
-    mock_model = MagicMock()
-    mock_model.create_chat_completion.return_value = _mock_chat_response("{}")
-    mgr.instruct_model = mock_model
-    mgr.extract_model = MagicMock()
-
-    mgr.plan("my system", "my user")
+    mock_model.create_chat_completion.return_value = _mock_chat_response("ok")
+    mgr.model = mock_model
+    messages = [
+        {"role": "system", "content": "you are helpful"},
+        {"role": "user", "content": "test"},
+    ]
+    mgr.generate(messages)
     call_kwargs = mock_model.create_chat_completion.call_args
-    messages = call_kwargs.kwargs.get("messages") or call_kwargs[1].get("messages")
-    assert messages[0]["role"] == "system"
-    assert messages[0]["content"] == "my system"
-    assert messages[1]["role"] == "user"
-    assert messages[1]["content"] == "my user"
+    passed_messages = call_kwargs.kwargs.get("messages") or call_kwargs[0][0]
+    assert len(passed_messages) == 2
+    assert passed_messages[0]["role"] == "system"
 
 
-def test_rewrite_calls_instruct_model():
+def test_generate_max_tokens():
     mgr = ModelManager.__new__(ModelManager)
     mock_model = MagicMock()
-    mock_model.create_chat_completion.return_value = _mock_chat_response('{"intent": "factual"}')
-    mgr.instruct_model = mock_model
-    mgr.extract_model = MagicMock()
+    mock_model.create_chat_completion.return_value = _mock_chat_response("ok")
+    mgr.model = mock_model
+    mgr.generate([{"role": "user", "content": "hi"}], max_tokens=256)
+    call_kwargs = mock_model.create_chat_completion.call_args
+    assert call_kwargs.kwargs.get("max_tokens") == 256
 
-    result = mgr.rewrite("system", "user")
-    mock_model.create_chat_completion.assert_called_once()
-    assert "factual" in result
+
+def test_generate_resets_model():
+    mgr = ModelManager.__new__(ModelManager)
+    mock_model = MagicMock()
+    mock_model.create_chat_completion.return_value = _mock_chat_response("ok")
+    mgr.model = mock_model
+    mgr.generate([{"role": "user", "content": "hi"}])
+    mock_model.reset.assert_called_once()
+
+
+def test_default_model_path():
+    mgr = ModelManager()
+    assert "LFM2.5-1.2B-Instruct" in mgr.model_path
+
+
+def test_custom_model_path():
+    mgr = ModelManager(model_path="/custom/path.gguf")
+    assert mgr.model_path == "/custom/path.gguf"
