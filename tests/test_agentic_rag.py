@@ -88,3 +88,57 @@ def test_map_prompt_formats():
 def test_reduce_prompt_formats():
     result = REDUCE_PROMPT.format(facts_list="- Invoice #123", query="find invoices")
     assert "Invoice #123" in result
+
+
+from chat import AgenticRAG
+
+
+def _make_results(*texts):
+    """Helper: create FakeSearchResults from text strings."""
+    return [
+        FakeSearchResult(id=str(i), text=t, score=0.9 - i * 0.1, metadata={"source": f"file{i}.pdf"})
+        for i, t in enumerate(texts)
+    ]
+
+
+def test_planner_extracts_filters():
+    planner_response = json.dumps({
+        "keywords": ["invoice", "anthropic"],
+        "file_filter": "pdf",
+        "source_hint": "Invoice",
+    })
+    llm = FakeLLM([planner_response])
+    searcher = FakeSearcher(_make_results("chunk1"))
+    rag = AgenticRAG(searcher, llm, top_k=3, debug=False)
+
+    plan = rag._plan("find my Anthropic invoices")
+    assert plan["source_hint"] == "Invoice"
+    assert plan["file_filter"] == "pdf"
+
+
+def test_planner_bad_json_returns_empty_plan():
+    llm = FakeLLM(["I don't understand"])
+    searcher = FakeSearcher([])
+    rag = AgenticRAG(searcher, llm, top_k=3, debug=False)
+
+    plan = rag._plan("find invoices")
+    assert plan["keywords"] == []
+    assert plan["source_hint"] is None
+    assert plan["file_filter"] is None
+
+
+def test_search_applies_metadata_filters():
+    planner_response = json.dumps({
+        "keywords": ["invoice"],
+        "file_filter": None,
+        "source_hint": "Invoice",
+    })
+    llm = FakeLLM([planner_response])
+    results = _make_results("Invoice #123")
+    searcher = FakeSearcher(results)
+    rag = AgenticRAG(searcher, llm, top_k=5, debug=False)
+
+    plan = rag._plan("invoices")
+    search_results = rag._search("invoices", plan)
+    assert searcher.last_filters == {"source": {"contains": "Invoice"}}
+    assert len(search_results) == 1

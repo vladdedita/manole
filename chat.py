@@ -138,6 +138,59 @@ REDUCE_PROMPT = (
 )
 
 
+class AgenticRAG:
+    """Multi-stage agentic RAG pipeline for small language models."""
+
+    def __init__(self, searcher, llm, top_k=5, debug=True):
+        self.searcher = searcher
+        self.llm = llm
+        self.top_k = top_k
+        self.debug = debug
+
+    def _log(self, stage: str, msg: str):
+        if self.debug:
+            print(f"  [{stage}] {msg}")
+
+    def _plan(self, query: str) -> dict:
+        """Stage 1: Extract search parameters from query."""
+        self._log("PLAN", f"Analyzing query: {query}")
+        response = self.llm.ask(PLANNER_PROMPT.format(query=query), temperature=0.0)
+        parsed = parse_json(response)
+
+        default = {"keywords": [], "file_filter": None, "source_hint": None}
+        if parsed is None:
+            self._log("PLAN", "Failed to parse planner output, using defaults")
+            return default
+
+        result = {
+            "keywords": parsed.get("keywords", []),
+            "file_filter": parsed.get("file_filter"),
+            "source_hint": parsed.get("source_hint"),
+        }
+        self._log("PLAN", f"Result: {result}")
+        return result
+
+    def _search(self, query: str, plan: dict) -> list:
+        """Stage 2: Search with optional metadata filters."""
+        metadata_filters = None
+        source_hint = plan.get("source_hint")
+        file_filter = plan.get("file_filter")
+
+        if source_hint or file_filter:
+            metadata_filters = {}
+            if source_hint:
+                metadata_filters["source"] = {"contains": source_hint}
+            elif file_filter:
+                metadata_filters["source"] = {"contains": f".{file_filter}"}
+
+        self._log("SEARCH", f"Filters: {metadata_filters}")
+        results = self.searcher.search(
+            query, top_k=self.top_k, metadata_filters=metadata_filters
+        )
+        self._log("SEARCH", f"Found {len(results)} chunks")
+        return results
+
+
 def chat_loop(index_name: str):
     print("\nLoading LFM2.5-1.2B-Instruct...")
     t0 = time.time()
