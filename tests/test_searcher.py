@@ -1,6 +1,7 @@
 """Tests for Searcher — search with internal map-filter."""
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from unittest.mock import MagicMock
 from searcher import Searcher, MAP_SYSTEM, extract_keywords
 
@@ -178,3 +179,110 @@ def test_extract_keywords_short_words_removed():
     assert "an" not in result
     assert "ok" not in result
     assert "file" in result
+
+
+class FakeFileReader:
+    """Fake FileReader that returns predefined text for any path."""
+    def __init__(self, text="Invoice #999 from Dante International, Amount: $500"):
+        self.text = text
+        self.read_calls = []
+
+    def read(self, path):
+        self.read_calls.append(path)
+        return self.text
+
+
+class FakeToolBox:
+    """Fake ToolBox with grep_paths support."""
+    def __init__(self, paths=None):
+        self.paths = paths or []
+
+    def grep_paths(self, pattern, limit=3):
+        return [p for p in self.paths if pattern.lower() in p.name.lower()][:limit]
+
+
+def test_filename_fallback_when_chunks_irrelevant():
+    """When all chunks are irrelevant, fallback greps filenames and reads files."""
+    results = _make_results("unrelated meeting notes")
+    model = _make_model([
+        json.dumps({"relevant": False, "facts": []}),
+        json.dumps({"relevant": True, "facts": ["Invoice #999", "Dante International"]}),
+    ])
+    leann = FakeLeann(results)
+    file_reader = FakeFileReader()
+    toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
+
+    searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
+    output = searcher.search_and_extract("macbook invoice")
+
+    assert "Invoice #999" in output
+    assert "macbook_ssd.pdf" in output
+    assert len(file_reader.read_calls) == 1
+
+
+def test_filename_fallback_no_matching_files():
+    """When no filenames match keywords, returns standard no-results message."""
+    results = _make_results("unrelated text")
+    model = _make_model([
+        json.dumps({"relevant": False, "facts": []}),
+    ])
+    leann = FakeLeann(results)
+    file_reader = FakeFileReader()
+    toolbox = FakeToolBox(paths=[])
+
+    searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
+    output = searcher.search_and_extract("macbook invoice")
+
+    assert "none were relevant" in output.lower()
+
+
+def test_filename_fallback_not_triggered_when_chunks_relevant():
+    """Filename fallback should NOT run when chunk search finds results."""
+    results = _make_results("Invoice #123 for MacBook Pro")
+    model = _make_model([
+        json.dumps({"relevant": True, "facts": ["Invoice #123", "MacBook Pro"]}),
+    ])
+    leann = FakeLeann(results)
+    file_reader = FakeFileReader()
+    toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
+
+    searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
+    output = searcher.search_and_extract("macbook invoice")
+
+    assert "Invoice #123" in output
+    assert len(file_reader.read_calls) == 0
+
+
+def test_filename_fallback_without_file_reader():
+    """Without file_reader, fallback is skipped gracefully."""
+    results = _make_results("unrelated text")
+    model = _make_model([
+        json.dumps({"relevant": False, "facts": []}),
+    ])
+    leann = FakeLeann(results)
+
+    searcher = Searcher(leann, model)
+    output = searcher.search_and_extract("macbook invoice")
+
+    assert "none were relevant" in output.lower()
+
+
+def test_filename_fallback_caps_at_3_files():
+    """Fallback reads at most 3 matching files."""
+    results = _make_results("unrelated")
+    model = _make_model([
+        json.dumps({"relevant": False, "facts": []}),
+        json.dumps({"relevant": True, "facts": ["fact1"]}),
+        json.dumps({"relevant": True, "facts": ["fact2"]}),
+        json.dumps({"relevant": True, "facts": ["fact3"]}),
+    ])
+    leann = FakeLeann(results)
+    file_reader = FakeFileReader()
+    toolbox = FakeToolBox(paths=[
+        Path(f"/data/macbook_{i}.pdf") for i in range(5)
+    ])
+
+    searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
+    output = searcher.search_and_extract("macbook")
+
+    assert len(file_reader.read_calls) == 3

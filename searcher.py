@@ -44,9 +44,11 @@ def extract_keywords(query: str) -> list[str]:
 class Searcher:
     """LeannSearcher wrapper with internal fact extraction."""
 
-    def __init__(self, leann_searcher, model, debug: bool = False):
+    def __init__(self, leann_searcher, model, file_reader=None, toolbox=None, debug: bool = False):
         self.leann = leann_searcher
         self.model = model
+        self.file_reader = file_reader
+        self.toolbox = toolbox
         self.debug = debug
 
     def search_and_extract(self, query: str, top_k: int = 5) -> str:
@@ -72,6 +74,8 @@ class Searcher:
                 facts_by_source.setdefault(source, []).extend(extracted["facts"])
 
         if not facts_by_source:
+            if self.file_reader and self.toolbox:
+                return self._filename_fallback(query)
             return "Search returned results but none were relevant to the query."
 
         # Format for agent context
@@ -120,6 +124,66 @@ class Searcher:
             print(f"  [SEARCH] {source}: relevant={relevant}, facts={len(facts)}")
 
         return {"relevant": relevant, "facts": facts}
+
+    def _filename_fallback(self, query: str) -> str:
+        """Grep filenames for query keywords, read matches, extract facts."""
+        keywords = extract_keywords(query)
+        if not keywords:
+            return "Search returned results but none were relevant to the query."
+
+        if self.debug:
+            print(f"  [SEARCH] Filename fallback: keywords={keywords}")
+
+        # Collect unique matching file paths across all keywords
+        seen = set()
+        matching_paths = []
+        for keyword in keywords:
+            for path in self.toolbox.grep_paths(keyword, limit=3):
+                path_str = str(path)
+                if path_str not in seen:
+                    seen.add(path_str)
+                    matching_paths.append(path)
+
+        matching_paths = matching_paths[:3]  # cap total files
+
+        if not matching_paths:
+            if self.debug:
+                print("  [SEARCH] Filename fallback: no matching files")
+            return "Search returned results but none were relevant to the query."
+
+        if self.debug:
+            print(f"  [SEARCH] Filename fallback: reading {[p.name for p in matching_paths]}")
+
+        # Read each file and run map-filter
+        facts_by_source = {}
+        for path in matching_paths:
+            text = self.file_reader.read(str(path))
+            if text.startswith("File not found") or text.startswith("Failed to read") or text.startswith("No text content"):
+                if self.debug:
+                    print(f"  [SEARCH] Filename fallback: {path.name}: {text[:80]}")
+                continue
+
+            # Create a fake chunk-like object for _extract_facts
+            fake_chunk = type("Chunk", (), {
+                "id": path.name,
+                "text": text,
+                "score": 0.0,
+                "metadata": {"file_name": path.name, "file_path": str(path)},
+            })()
+
+            extracted = self._extract_facts(query, fake_chunk)
+            if extracted["relevant"] and extracted["facts"]:
+                facts_by_source.setdefault(path.name, []).extend(extracted["facts"])
+
+        if not facts_by_source:
+            return "Search returned results but none were relevant to the query."
+
+        lines = []
+        for source, facts in facts_by_source.items():
+            lines.append(f"From {source}:")
+            for fact in facts:
+                lines.append(f"  - {fact}")
+        return "\n".join(lines)
 
     @staticmethod
     def _get_source(chunk) -> str:
