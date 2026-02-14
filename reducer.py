@@ -3,6 +3,7 @@
 REDUCE_PROMPT = (
     "Here are facts extracted from the user's files:\n"
     "{facts_list}\n\n"
+    "{context}"
     "Question: {query}\n\n"
     "Using ONLY these facts, write a concise answer. "
     'If the facts don\'t answer the question, say "No relevant information found."\n\n'
@@ -40,7 +41,7 @@ class Reducer:
         self.models = models
         self.debug = debug
 
-    def synthesize(self, query: str, relevant: list[dict]) -> str:
+    def synthesize(self, query: str, relevant: list[dict], context: str = "") -> str:
         if not relevant:
             return "No relevant information found."
         facts_list = ""
@@ -49,7 +50,8 @@ class Reducer:
             facts_list += f"\nFrom {source}:\n"
             for fact in item["facts"]:
                 facts_list += f"  - {fact}\n"
-        prompt = REDUCE_PROMPT.format(facts_list=facts_list, query=query)
+        context_block = f"\n{context}\n" if context else ""
+        prompt = REDUCE_PROMPT.format(facts_list=facts_list, query=query, context=context_block)
         if self.debug:
             print(f"  [REDUCE] Synthesizing from {len(relevant)} sources")
         answer = self.models.synthesize(prompt)

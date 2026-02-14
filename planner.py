@@ -2,7 +2,9 @@
 from parser import parse_json
 
 PLANNER_PROMPT = (
-    "Extract search parameters from the user's question as JSON.\n\n"
+    "Extract search parameters from the user's question as JSON.\n"
+    "{context}"
+    "\n"
     "Output fields:\n"
     '- "keywords": list of 2-4 search terms\n'
     '- "file_filter": file extension like "pdf", "txt", "py", or null\n'
@@ -53,8 +55,9 @@ class Planner:
         self.models = models
         self.debug = debug
 
-    def plan(self, query: str) -> dict:
-        prompt = PLANNER_PROMPT.format(query=query)
+    def plan(self, query: str, context: str = "") -> dict:
+        context_block = f"\n{context}\n\n" if context else ""
+        prompt = PLANNER_PROMPT.format(query=query, context=context_block)
         raw = self.models.plan(prompt)
 
         if self.debug:
