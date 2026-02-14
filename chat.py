@@ -48,6 +48,22 @@ def parse_json(text: str) -> dict | None:
     return None
 
 
+def confidence_score(answer: str, facts: list[str]) -> float:
+    """Compute token overlap between answer and source facts. Returns 0.0-1.0."""
+    if not facts:
+        return 0.0
+    answer_tokens = set(answer.lower().split())
+    if not answer_tokens:
+        return 0.0
+    fact_tokens = set()
+    for fact in facts:
+        fact_tokens.update(fact.lower().split())
+    if not fact_tokens:
+        return 0.0
+    overlap = answer_tokens & fact_tokens
+    return len(overlap) / len(answer_tokens)
+
+
 def get_index_name(data_dir: Path) -> str:
     return data_dir.name.replace(" ", "_").replace("/", "_")
 
@@ -217,6 +233,38 @@ class AgenticRAG:
         relevant = [m for m in mapped if m["relevant"]]
         self._log("FILTER", f"Kept {len(relevant)}/{len(mapped)} chunks")
         return relevant
+
+    def _reduce(self, query: str, relevant: list[dict]) -> str:
+        """Stage 5: Synthesize answer from extracted facts."""
+        if not relevant:
+            return "No relevant information found."
+
+        facts_list = ""
+        for item in relevant:
+            source = item.get("source", "?")
+            facts_list += f"\nFrom {source}:\n"
+            for fact in item["facts"]:
+                facts_list += f"  - {fact}\n"
+
+        prompt = REDUCE_PROMPT.format(facts_list=facts_list, query=query)
+        self._log("REDUCE", f"Synthesizing from {len(relevant)} sources")
+        answer = self.llm.ask(prompt, temperature=0.1)
+        return answer.strip()
+
+    def _confidence_check(self, answer: str, relevant: list[dict]) -> str:
+        """Stage 6: Python-based confidence check via token overlap. No LLM call."""
+        all_facts = []
+        for item in relevant:
+            all_facts.extend(item.get("facts", []))
+
+        score = confidence_score(answer, all_facts)
+        self._log("CHECK", f"Confidence: {score:.2f}")
+
+        if score < 0.2:
+            self._log("CHECK", "Low confidence — answer may not be grounded in sources")
+            return f"{answer}\n\n(Low confidence) Answer may not reflect source documents."
+
+        return answer
 def chat_loop(index_name: str):
     print("\nLoading LFM2.5-1.2B-Instruct...")
     t0 = time.time()

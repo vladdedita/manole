@@ -186,3 +186,56 @@ def test_filter_removes_irrelevant():
     filtered = rag._filter(mapped)
     assert len(filtered) == 2
     assert all(m["relevant"] for m in filtered)
+
+
+from chat import confidence_score
+
+
+def test_reduce_synthesizes_answer():
+    llm = FakeLLM(["There are 2 invoices: #123 and #456."])
+    rag = AgenticRAG(FakeSearcher([]), llm, debug=False)
+
+    relevant = [
+        {"relevant": True, "facts": ["Invoice #123", "Amount: $50"], "source": "a.pdf"},
+        {"relevant": True, "facts": ["Invoice #456", "Amount: $75"], "source": "b.pdf"},
+    ]
+    answer = rag._reduce("find invoices", relevant)
+    assert "2 invoices" in answer
+
+
+def test_reduce_no_relevant_chunks():
+    llm = FakeLLM(["No relevant information found."])
+    rag = AgenticRAG(FakeSearcher([]), llm, debug=False)
+    answer = rag._reduce("find invoices", [])
+    assert "No relevant" in answer
+
+
+def test_confidence_high_overlap():
+    facts = ["Invoice #123", "Amount: $50", "Date: Dec 4"]
+    answer = "Invoice #123 for $50 dated Dec 4"
+    score = confidence_score(answer, facts)
+    assert score >= 0.5
+
+
+def test_confidence_low_overlap():
+    facts = ["Invoice #123", "Amount: $50"]
+    answer = "The weather is nice today and I like cats"
+    score = confidence_score(answer, facts)
+    assert score < 0.3
+
+
+def test_confidence_empty_facts():
+    score = confidence_score("some answer", [])
+    assert score == 0.0
+
+
+def test_confidence_check_flags_low_confidence():
+    llm = FakeLLM(["The sky is blue and birds fly south."])
+    rag = AgenticRAG(FakeSearcher([]), llm, debug=False)
+
+    relevant = [
+        {"relevant": True, "facts": ["Invoice #123", "Amount: $50"], "source": "a.pdf"},
+    ]
+    answer = rag._reduce("find invoices", relevant)
+    result = rag._confidence_check(answer, relevant)
+    assert "(low confidence)" in result.lower()
