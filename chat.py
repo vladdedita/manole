@@ -15,37 +15,7 @@ import sys
 import time
 from pathlib import Path
 from leann import LeannChat
-import json
-import re
-
-
-def parse_json(text: str) -> dict | None:
-    """Parse JSON from LLM output with fallback regex extraction."""
-    # Try direct parse
-    try:
-        return json.loads(text.strip())
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Try to find a JSON object in the text
-    match = re.search(r'\{[^{}]+\}', text)
-    if match:
-        try:
-            return json.loads(match.group())
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # Fallback: extract "relevant" field via regex
-    rel_match = re.search(r'"relevant"\s*:\s*(true|false)', text, re.IGNORECASE)
-    if rel_match:
-        relevant = rel_match.group(1).lower() == "true"
-        facts_match = re.search(r'"facts"\s*:\s*\[([^\]]*)\]', text)
-        facts = []
-        if facts_match:
-            facts = [f.strip().strip('"') for f in facts_match.group(1).split(",") if f.strip()]
-        return {"relevant": relevant, "facts": facts}
-
-    return None
+from parser import parse_json
 
 
 def confidence_score(answer: str, facts: list[str]) -> float:
