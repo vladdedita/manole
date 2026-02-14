@@ -96,3 +96,34 @@ def test_grep_no_match():
     assert "No files" in result or "0" in result
 
 
+
+
+def test_grep_paths_returns_path_objects():
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "invoice_001.pdf").write_text("inv1")
+        (Path(tmp) / "invoice_002.pdf").write_text("inv2")
+        (Path(tmp) / "readme.txt").write_text("readme")
+        tb = ToolBox(tmp)
+        paths = tb.grep_paths("invoice")
+    assert len(paths) == 2
+    assert all(isinstance(p, Path) for p in paths)
+    names = {p.name for p in paths}
+    assert "invoice_001.pdf" in names
+    assert "invoice_002.pdf" in names
+
+
+def test_grep_paths_no_match():
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "readme.txt").write_text("hello")
+        tb = ToolBox(tmp)
+        paths = tb.grep_paths("nonexistent")
+    assert paths == []
+
+
+def test_grep_paths_limit():
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(10):
+            (Path(tmp) / f"doc_{i}.txt").write_text(f"doc {i}")
+        tb = ToolBox(tmp)
+        paths = tb.grep_paths("doc", limit=3)
+    assert len(paths) == 3

@@ -87,3 +87,9 @@ class ToolBox:
         lines = [f"  - {f.relative_to(self.root)}" for f in matches[:20]]
         return f"Files matching '{pattern}':\n" + "\n".join(lines)
 
+
+    def grep_paths(self, pattern: str, limit: int = 20) -> list[Path]:
+        """Find files by name pattern. Returns Path objects."""
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        matches = [f for f in files if pattern.lower() in f.name.lower()]
+        return matches[:limit]
