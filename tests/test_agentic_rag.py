@@ -45,7 +45,7 @@ def test_placeholder():
 
 import sys
 sys.path.insert(0, "/Users/ded/Projects/assist/manole")
-from chat import parse_json
+from chat import parse_json, PLANNER_PROMPT, MAP_PROMPT, REDUCE_PROMPT
 
 
 def test_parse_json_valid():
@@ -71,3 +71,20 @@ def test_parse_json_malformed_fallback_not_relevant():
 def test_parse_json_total_garbage():
     result = parse_json("I don't understand the question")
     assert result is None
+
+
+def test_planner_prompt_formats():
+    result = PLANNER_PROMPT.format(query="find invoices")
+    assert "find invoices" in result
+    assert "keywords" in result
+
+
+def test_map_prompt_formats():
+    result = MAP_PROMPT.format(query="find invoices", chunk_text="Invoice #123")
+    assert "find invoices" in result
+    assert "Invoice #123" in result
+
+
+def test_reduce_prompt_formats():
+    result = REDUCE_PROMPT.format(facts_list="- Invoice #123", query="find invoices")
+    assert "Invoice #123" in result

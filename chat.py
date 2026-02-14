@@ -104,19 +104,37 @@ def find_index_path(index_name: str) -> str:
     sys.exit(1)
 
 
-TOP_K = 7
+TOP_K = 5
 DEBUG_SOURCES = True
 
-RAG_PROMPT = (
-    "I have provided snippets from several files below.\n"
-    "Based on these snippets, answer the user's question.\n\n"
-    "### SOURCES:\n{context}\n\n"
-    "### QUESTION:\n{question}\n\n"
-    "### INSTRUCTIONS:\n"
-    "- Summarize the relevant details found in the sources above.\n"
-    "- Mention specific filenames, numbers, or dates when available.\n"
-    "- If no relevant information is found in the sources, say \"No relevant information found.\"\n\n"
-    "### RESPONSE:\n"
+PLANNER_PROMPT = (
+    "Analyze this user question and extract search parameters.\n"
+    "Question: {query}\n\n"
+    "Output a JSON object with:\n"
+    '- "keywords": list of 2-4 search terms\n'
+    '- "file_filter": file extension to filter by (e.g. "pdf", "txt") or null\n'
+    '- "source_hint": filename substring to filter by, or null\n\n'
+    "JSON:\n"
+)
+
+MAP_PROMPT = (
+    "Read this text and answer: does it contain information relevant to the question?\n\n"
+    "Question: {query}\n"
+    "Text: {chunk_text}\n\n"
+    "Output a JSON object with:\n"
+    '- "relevant": true or false\n'
+    '- "facts": list of specific facts found (dates, names, numbers, filenames). '
+    "Empty list if not relevant.\n\n"
+    "JSON:\n"
+)
+
+REDUCE_PROMPT = (
+    "Here are facts extracted from the user's files:\n"
+    "{facts_list}\n\n"
+    "Question: {query}\n\n"
+    "Using ONLY these facts, write a concise answer. "
+    'If the facts don\'t answer the question, say "No relevant information found."\n\n'
+    "Answer:\n"
 )
 
 
