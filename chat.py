@@ -124,23 +124,23 @@ TOP_K = 5
 DEBUG_SOURCES = True
 
 PLANNER_PROMPT = (
-    "Analyze this user question and extract search parameters.\n"
-    "Question: {query}\n\n"
-    "Output a JSON object with:\n"
-    '- "keywords": list of 2-4 search terms\n'
-    '- "file_filter": file extension to filter by (e.g. "pdf", "txt") or null\n'
-    '- "source_hint": filename substring to filter by, or null\n\n'
+    "Extract search parameters from the question as JSON.\n\n"
+    'Example: "find my Anthropic invoices"\n'
+    '{{"keywords": ["invoice", "Anthropic"], "file_filter": "pdf", "source_hint": "Invoice"}}\n\n'
+    'Example: "what python scripts do I have?"\n'
+    '{{"keywords": ["python", "script", "code"], "file_filter": "py", "source_hint": null}}\n\n'
+    'Example: "notes about machine learning"\n'
+    '{{"keywords": ["machine learning", "notes", "AI"], "file_filter": null, "source_hint": null}}\n\n'
+    "Question: {query}\n"
     "JSON:\n"
 )
 
 MAP_PROMPT = (
-    "Read this text and answer: does it contain information relevant to the question?\n\n"
+    "Does this text answer the question? Extract facts or say not relevant.\n\n"
     "Question: {query}\n"
     "Text: {chunk_text}\n\n"
-    "Output a JSON object with:\n"
-    '- "relevant": true or false\n'
-    '- "facts": list of specific facts found (dates, names, numbers, filenames). '
-    "Empty list if not relevant.\n\n"
+    'If relevant, output: {{"relevant": true, "facts": ["fact1", "fact2"]}}\n'
+    'If NOT relevant, output: {{"relevant": false, "facts": []}}\n\n'
     "JSON:\n"
 )
 
