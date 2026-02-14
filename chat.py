@@ -76,6 +76,7 @@ def chat_loop(index_name: str, data_dir: str):
     from leann import LeannSearcher
     from models import ModelManager
     from searcher import Searcher
+    from file_reader import FileReader
     from toolbox import ToolBox
     from tools import ToolRegistry
     from router import route
@@ -94,8 +95,9 @@ def chat_loop(index_name: str, data_dir: str):
 
     # Create search and tools
     leann_searcher = LeannSearcher(index_path, enable_warmup=True)
-    searcher = Searcher(leann_searcher, model, debug=True)
+    file_reader = FileReader()
     toolbox = ToolBox(data_dir)
+    searcher = Searcher(leann_searcher, model, file_reader=file_reader, toolbox=toolbox, debug=True)
     tool_registry = ToolRegistry(searcher, toolbox)
 
     # Create router (module-level function wrapped for Agent interface)
