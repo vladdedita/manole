@@ -30,19 +30,29 @@ def _extract_name_hint(query: str) -> str | None:
     return nouns[-1] if nouns else None
 
 
+def _is_about_files(query: str) -> bool:
+    """Check if the query is about files/documents themselves (not file contents)."""
+    q = query.lower()
+    if _detect_extension(q):
+        return True
+    # Strip punctuation for word matching
+    words = re.sub(r'[^\w\s]', '', q).split()
+    return any(w in words for w in ["file", "files", "document", "documents"])
+
+
 def route(query: str, intent: str | None = None) -> tuple[str, dict]:
     q = query.lower()
 
-    # Intent-based routing (from rewriter) takes priority
-    if intent == "count":
+    # Intent-based routing (from rewriter) — only for filesystem queries
+    if intent == "count" and _is_about_files(q):
         return "count_files", {"extension": _detect_extension(q)}
     if intent == "list":
         ext = _detect_extension(q)
         if ext:
             return "list_files", {"extension": ext, "limit": 10}
 
-    # Keyword-based fallback
-    if any(k in q for k in ["how many", "count"]):
+    # Keyword-based fallback — only route to count_files if asking about files
+    if any(k in q for k in ["how many", "count"]) and _is_about_files(q):
         return "count_files", {"extension": _detect_extension(q)}
     if any(k in q for k in ["file types", "folder", "tree", "directory", "structure"]):
         return "directory_tree", {"max_depth": 2}

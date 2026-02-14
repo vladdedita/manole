@@ -74,10 +74,22 @@ def test_case_insensitive():
     assert name == "count_files"
 
 
-def test_intent_count_routes_to_count_files():
-    """Rewriter intent='count' overrides keyword matching."""
-    name, _ = route("how many invoices do we have?", intent="count")
+def test_intent_count_routes_to_count_files_for_file_queries():
+    """Rewriter intent='count' routes to count_files when query is about files."""
+    name, _ = route("how many pdf files do I have?", intent="count")
     assert name == "count_files"
+
+
+def test_intent_count_falls_through_for_content_queries():
+    """Rewriter intent='count' falls through to semantic_search for non-file queries."""
+    name, _ = route("how many invoices do we have?", intent="count")
+    assert name == "semantic_search"
+
+
+def test_content_count_routes_to_semantic_search():
+    """'how many eggs' should search file contents, not count files."""
+    name, _ = route("how many eggs in carbonara")
+    assert name == "semantic_search"
 
 
 def test_intent_list_with_extension():

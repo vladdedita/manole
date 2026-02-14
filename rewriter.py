@@ -2,20 +2,24 @@
 from parser import parse_json
 
 REWRITER_SYSTEM = (
-    "You rewrite user queries for document search. "
+    "You rewrite user queries for searching local files. "
     "Given a question and optional conversation history, produce JSON with:\n"
     '- "intent": one of "factual", "count", "list", "compare", "summarize"\n'
+    '  Use "count" ONLY for counting files/documents, NOT for counting things inside files.\n'
     '- "search_query": expanded query optimized for vector search '
     "(add synonyms, related terms, full forms of abbreviations)\n"
     '- "resolved_query": rewrite the user\'s question with pronouns and references '
-    "resolved into a clear, self-contained question\n\n"
+    "resolved. Always phrase it as searching in the user's files.\n\n"
     "Examples:\n\n"
     'Question: "any invoices?"\n'
     '{"intent": "list", "search_query": "invoice receipt payment billing", '
-    '"resolved_query": "Are there any invoices?"}\n\n'
+    '"resolved_query": "Are there any invoices in my files?"}\n\n'
     'Question: "how many PDFs?"\n'
     '{"intent": "count", "search_query": "PDF files documents", '
     '"resolved_query": "How many PDF files are there?"}\n\n'
+    'Question: "how many eggs in carbonara"\n'
+    '{"intent": "factual", "search_query": "carbonara recipe eggs ingredients", '
+    '"resolved_query": "How many eggs does the carbonara recipe call for according to my files?"}\n\n'
     "Reply with a single JSON object only."
 )
 
