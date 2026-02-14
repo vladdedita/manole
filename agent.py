@@ -21,20 +21,37 @@ class Agent:
 
     MAX_STEPS = 5
 
-    def __init__(self, model, tool_registry, router, debug=False):
+    def __init__(self, model, tool_registry, router, rewriter=None, debug=False):
         self.model = model
         self.tools = tool_registry
         self.router = router
+        self.rewriter = rewriter
         self.debug = debug
 
     def run(self, query: str, history: list[dict] = None) -> str:
         """Run the agent loop for a user query."""
+        # Rewrite query for better intent detection and search
+        rewrite = None
+        if self.rewriter:
+            context = ""
+            if history:
+                context = "\n".join(
+                    f"  {'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+                    for m in history[-4:]
+                )
+                if context:
+                    context = f"Recent conversation:\n{context}"
+            rewrite = self.rewriter.rewrite(query, context=context)
+
+        # Use resolved query for the model, search_query for semantic search
+        effective_query = rewrite["resolved_query"] if rewrite else query
+
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         if history:
             messages.extend(history[-4:])
 
-        messages.append({"role": "user", "content": query})
+        messages.append({"role": "user", "content": effective_query})
 
         for step in range(self.MAX_STEPS):
             if self.debug:
@@ -50,7 +67,12 @@ class Agent:
             if tool_call is None:
                 if step == 0:
                     # First step, no tool call — use fallback router
-                    tool_name, params = self.router.route(query)
+                    intent = rewrite["intent"] if rewrite else None
+                    search_query = rewrite["search_query"] if rewrite else query
+                    tool_name, params = self.router.route(query, intent=intent)
+                    # Use expanded search_query for semantic search
+                    if tool_name == "semantic_search":
+                        params["query"] = search_query
                     if self.debug:
                         print(f"  [AGENT] Fallback router: {tool_name}({params})")
                     result = self.tools.execute(tool_name, params)

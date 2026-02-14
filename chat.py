@@ -79,6 +79,7 @@ def chat_loop(index_name: str, data_dir: str):
     from toolbox import ToolBox
     from tools import ToolRegistry
     from router import route
+    from rewriter import QueryRewriter
     from agent import Agent
 
     print("\nLoading LFM2.5-1.2B-Instruct...")
@@ -100,11 +101,12 @@ def chat_loop(index_name: str, data_dir: str):
     # Create router (module-level function wrapped for Agent interface)
     class RouterWrapper:
         @staticmethod
-        def route(query):
-            return route(query)
+        def route(query, intent=None):
+            return route(query, intent=intent)
 
-    # Create agent
-    agent = Agent(model, tool_registry, RouterWrapper(), debug=True)
+    # Create rewriter and agent
+    rewriter = QueryRewriter(model, debug=True)
+    agent = Agent(model, tool_registry, RouterWrapper(), rewriter=rewriter, debug=True)
 
     print(f"Ready in {time.time() - t0:.1f}s")
     print("=" * 50)
@@ -129,6 +131,7 @@ def chat_loop(index_name: str, data_dir: str):
         if query.lower() == "debug":
             agent.debug = not agent.debug
             searcher.debug = agent.debug
+            rewriter.debug = agent.debug
             print(f"Trace: {'ON' if agent.debug else 'OFF'}")
             continue
 

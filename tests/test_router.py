@@ -72,3 +72,23 @@ def test_detect_extension_none():
 def test_case_insensitive():
     name, _ = route("HOW MANY PDF FILES?")
     assert name == "count_files"
+
+
+def test_intent_count_routes_to_count_files():
+    """Rewriter intent='count' overrides keyword matching."""
+    name, _ = route("how many invoices do we have?", intent="count")
+    assert name == "count_files"
+
+
+def test_intent_list_with_extension():
+    """Rewriter intent='list' routes to list_files when extension detected."""
+    name, params = route("show me all the pdf documents", intent="list")
+    assert name == "list_files"
+    assert params["extension"] == "pdf"
+
+
+def test_intent_list_without_extension_falls_through():
+    """Rewriter intent='list' without extension falls through to keywords."""
+    name, _ = route("any invoices?", intent="list")
+    # No extension detected and no keyword match, falls through to semantic_search
+    assert name == "semantic_search"

@@ -30,8 +30,8 @@ class FakeLeann:
 
 class RouterWrapper:
     @staticmethod
-    def route(query):
-        return route(query)
+    def route(query, intent=None):
+        return route(query, intent=intent)
 
 
 def _setup(model_responses, search_results=None, files=None):

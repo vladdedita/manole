@@ -30,8 +30,18 @@ def _extract_name_hint(query: str) -> str | None:
     return nouns[-1] if nouns else None
 
 
-def route(query: str) -> tuple[str, dict]:
+def route(query: str, intent: str | None = None) -> tuple[str, dict]:
     q = query.lower()
+
+    # Intent-based routing (from rewriter) takes priority
+    if intent == "count":
+        return "count_files", {"extension": _detect_extension(q)}
+    if intent == "list":
+        ext = _detect_extension(q)
+        if ext:
+            return "list_files", {"extension": ext, "limit": 10}
+
+    # Keyword-based fallback
     if any(k in q for k in ["how many", "count"]):
         return "count_files", {"extension": _detect_extension(q)}
     if any(k in q for k in ["file types", "folder", "tree", "directory", "structure"]):

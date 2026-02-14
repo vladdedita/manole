@@ -20,7 +20,7 @@ class FakeRouter:
         self.params = params or {"query": "test"}
         self.called = False
 
-    def route(self, query):
+    def route(self, query, intent=None):
         self.called = True
         return self.tool_name, self.params
 
