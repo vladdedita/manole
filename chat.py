@@ -2,7 +2,7 @@
 Interactive chat mode: index a directory and chat about its contents.
 
 Uses `leann build` CLI for indexing (handles PDFs, chunking, etc.)
-and the dual-model AgenticRAG pipeline for answering queries.
+and an agent loop for answering queries.
 
 Usage:
     uv run python chat.py /path/to/directory
@@ -75,34 +75,44 @@ def find_index_path(index_name: str) -> str:
 def chat_loop(index_name: str, data_dir: str):
     from leann import LeannSearcher
     from models import ModelManager
-    from pipeline import AgenticRAG
+    from searcher import Searcher
+    from toolbox import ToolBox
+    from tools import ToolRegistry
+    from router import route
+    from agent import Agent
 
-    print("\nLoading models...")
+    print("\nLoading LFM2.5-1.2B-Instruct...")
     t0 = time.time()
 
     index_path = find_index_path(index_name)
     print(f"Using index: {index_path}")
 
-    # Load both GGUF models
-    models = ModelManager()
-    models.load()
+    # Load model
+    model = ModelManager()
+    model.load()
 
-    # Create leann searcher for vector search
+    # Create search and tools
     leann_searcher = LeannSearcher(index_path, enable_warmup=True)
+    searcher = Searcher(leann_searcher, model, debug=True)
+    toolbox = ToolBox(data_dir)
+    tool_registry = ToolRegistry(searcher, toolbox)
 
-    # Create pipeline
-    rag = AgenticRAG(
-        models=models,
-        leann_searcher=leann_searcher,
-        data_dir=data_dir,
-        debug=True,
-    )
+    # Create router (module-level function wrapped for Agent interface)
+    class RouterWrapper:
+        @staticmethod
+        def route(query):
+            return route(query)
+
+    # Create agent
+    agent = Agent(model, tool_registry, RouterWrapper(), debug=True)
 
     print(f"Ready in {time.time() - t0:.1f}s")
     print("=" * 50)
     print("Ask anything about your files. Type 'quit' to exit.")
-    print("Type 'debug' to toggle pipeline trace.")
+    print("Type 'debug' to toggle trace.")
     print("=" * 50)
+
+    conversation_history = []
 
     while True:
         try:
@@ -117,15 +127,21 @@ def chat_loop(index_name: str, data_dir: str):
             print("Bye!")
             break
         if query.lower() == "debug":
-            rag.debug = not rag.debug
-            print(f"Pipeline trace: {'ON' if rag.debug else 'OFF'}")
+            agent.debug = not agent.debug
+            searcher.debug = agent.debug
+            print(f"Trace: {'ON' if agent.debug else 'OFF'}")
             continue
 
         t0 = time.time()
-        response = rag.ask(query)
+        response = agent.run(query, history=conversation_history)
         elapsed = time.time() - t0
         print(f"\n{response}")
         print(f"\n({elapsed:.1f}s)")
+
+        conversation_history.append({"role": "user", "content": query})
+        conversation_history.append({"role": "assistant", "content": response})
+        if len(conversation_history) > 10:
+            conversation_history = conversation_history[-10:]
 
 
 def main():
