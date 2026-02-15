@@ -89,6 +89,14 @@ def test_grep_filenames():
     assert "invoice.pdf" in result
 
 
+def test_grep_includes_count():
+    """grep result should include explicit match count for small models."""
+    tmp = _make_test_dir()
+    tb = ToolBox(tmp)
+    result = tb.grep("invoice")
+    assert "Found 1" in result
+
+
 def test_grep_no_match():
     tmp = _make_test_dir()
     tb = ToolBox(tmp)

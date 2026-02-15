@@ -85,7 +85,11 @@ class ToolBox:
         if not matches:
             return f"No files matching '{pattern}'."
         lines = [f"  - {f.relative_to(self.root)}" for f in matches[:20]]
-        return f"Files matching '{pattern}':\n" + "\n".join(lines)
+        count = len(matches)
+        header = f"Found {count} file{'s' if count != 1 else ''} matching '{pattern}':"
+        if count > 20:
+            header += " (showing first 20)"
+        return header + "\n" + "\n".join(lines)
 
 
     def grep_paths(self, pattern: str, limit: int = 20) -> list[Path]:
