@@ -2,6 +2,7 @@
 import json
 import re
 from parser import parse_json
+from searcher import extract_keywords
 
 TOOL_SCHEMAS = [
     {
@@ -134,6 +135,21 @@ class Agent:
                     })
                     continue
                 else:
+                    followup = self._needs_followup(query, messages)
+                    if followup:
+                        tool_name = followup["name"]
+                        tool_params = followup["params"]
+                        if self.debug:
+                            print(f"  [AGENT] Followup: {tool_name}({tool_params})")
+                        result = self.tools.execute(tool_name, tool_params)
+                        if self.debug:
+                            print(f"  [AGENT] Followup result: {result[:200]}")
+                        messages.append({"role": "assistant", "content": raw})
+                        messages.append({
+                            "role": "tool",
+                            "content": json.dumps({"tool": tool_name, "result": result}),
+                        })
+                        continue
                     if self.debug:
                         print("  [AGENT] Direct response (no tool call)")
                     return raw
@@ -172,6 +188,65 @@ class Agent:
         "semantic_search", "count_files", "list_files", "grep_files",
         "file_metadata", "directory_tree", "respond",
     })
+
+    # Words too generic to trigger a followup grep/search
+    _FOLLOWUP_STOPWORDS = frozenset({
+        "many", "much", "some", "any", "all", "most", "few", "more", "less",
+        "have", "has", "had", "get", "got", "find", "show", "list", "give",
+        "what", "which", "where", "when", "how", "why", "who",
+        "there", "here", "this", "that", "these", "those",
+        "file", "files", "folder", "folders", "directory", "directories",
+        "count", "number", "total", "size",
+        "can", "could", "would", "should", "will", "might",
+        "about", "just", "only", "also", "even", "still",
+        "aren't", "isn't", "don't", "doesn't", "didn't", "won't",
+        "final", "question", "answer", "help", "please", "thanks",
+        "test", "magic", "stuff", "thing", "things",
+    })
+
+    def _needs_followup(self, query: str, messages: list[dict]) -> dict | None:
+        """Check if query keywords are covered by tool results. Return next tool call if not."""
+        keywords = extract_keywords(query)
+        # Filter out generic words that wouldn't make good grep/search targets
+        keywords = [kw for kw in keywords if kw not in self._FOLLOWUP_STOPWORDS]
+        if not keywords:
+            return None
+
+        result_text = ""
+        tools_used = set()
+        for msg in messages:
+            if msg["role"] == "tool":
+                result_text += msg["content"].lower() + " "
+                try:
+                    parsed = json.loads(msg["content"])
+                    if isinstance(parsed, dict) and "tool" in parsed:
+                        tools_used.add(parsed["tool"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            elif msg["role"] == "assistant":
+                result_text += msg["content"].lower() + " "
+
+        def _covered(kw: str, text: str) -> bool:
+            """Check if keyword is covered in text, with basic stem matching."""
+            if kw in text:
+                return True
+            # Strip trailing 's' for basic plural handling
+            stem = kw.rstrip("s")
+            if len(stem) >= 3 and stem in text:
+                return True
+            return False
+
+        missing = [kw for kw in keywords if not _covered(kw, result_text)]
+        if not missing:
+            return None
+
+        if "grep_files" not in tools_used:
+            return {"name": "grep_files", "params": {"pattern": missing[0]}}
+
+        if "semantic_search" not in tools_used:
+            return {"name": "semantic_search", "params": {"query": " ".join(missing)}}
+
+        return None
 
     def _parse_tool_call(self, response: str) -> dict | None:
         """Parse tool call from model output.

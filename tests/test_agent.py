@@ -239,6 +239,28 @@ def test_bare_function_call():
     assert not router.called
 
 
+def test_followup_grep_when_keyword_missing():
+    """Python injects grep_files when model stops but query keyword not in results."""
+    model = _make_model([
+        '[count_files(extension="pdf")]',
+        "There are 25 PDF files.",
+        "Found macbook_ssd.pdf — a MacBook-related PDF.",
+    ])
+    tools = FakeToolRegistry({
+        "count_files": "Found 25 .pdf files.",
+        "grep_files": "macbook_ssd.pdf",
+    })
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("any macbook pdfs")
+
+    tool_calls = [(name, params) for name, params in tools.calls]
+    assert ("count_files", {"extension": "pdf"}) in tool_calls
+    assert any(name == "grep_files" and "macbook" in params.get("pattern", "") for name, params in tool_calls)
+    assert not router.called
+
+
 def test_bare_unknown_tool_not_parsed():
     """Bare format only matches known tools, not arbitrary words."""
     model = _make_model([
