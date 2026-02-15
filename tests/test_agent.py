@@ -307,3 +307,66 @@ def test_tool_call_extracted_from_prose():
 
     assert tools.calls[0] == ("count_files", {"extension": "pdf"})
     assert not router.called
+
+
+def test_followup_semantic_search_after_grep():
+    """When grep was already used, followup tries semantic_search."""
+    model = _make_model([
+        '[grep_files(pattern="invoice")]',
+        "Found 5 invoice files.",
+        "The total across all invoices is $2,500.",
+    ])
+    tools = FakeToolRegistry({
+        "grep_files": "invoice_001.pdf\ninvoice_002.pdf",
+        "semantic_search": "From invoice_001.pdf: Total: $1,200\nFrom invoice_002.pdf: Total: $1,300",
+    })
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("what is the revenue from invoices")
+
+    tool_calls = [(name, params) for name, params in tools.calls]
+    assert any(name == "grep_files" for name, params in tool_calls)
+    assert any(name == "semantic_search" for name, params in tool_calls)
+
+
+def test_no_followup_when_keywords_covered():
+    """No followup when all query keywords appear in tool results."""
+    model = _make_model([
+        '[semantic_search(query="carbonara eggs")]',
+        "The recipe calls for 4 eggs.",
+    ])
+    tools = FakeToolRegistry({
+        "semantic_search": "From pasta_carbonara.txt: 4 eggs, pecorino romano, guanciale",
+    })
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("how many eggs in carbonara")
+
+    assert answer == "The recipe calls for 4 eggs."
+    assert len(tools.calls) == 1
+
+
+def test_followup_stops_after_both_tools_tried():
+    """Followup doesn't loop forever — stops when grep and semantic_search both tried."""
+    model = _make_model([
+        '[count_files(extension="pdf")]',
+        "There are 25 PDFs.",
+        "Still 25 PDFs.",
+        "I found some results.",
+    ])
+    tools = FakeToolRegistry({
+        "count_files": "Found 25 .pdf files.",
+        "grep_files": "No matching files found.",
+        "semantic_search": "No results found.",
+    })
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("any macbook pdfs")
+
+    assert answer == "I found some results."
+    tool_names = [name for name, _ in tools.calls]
+    assert tool_names.count("grep_files") == 1
+    assert tool_names.count("semantic_search") == 1

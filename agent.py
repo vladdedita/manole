@@ -195,7 +195,7 @@ class Agent:
         "have", "has", "had", "get", "got", "find", "show", "list", "give",
         "what", "which", "where", "when", "how", "why", "who",
         "there", "here", "this", "that", "these", "those",
-        "file", "files", "folder", "folders", "directory", "directories",
+        "file", "files", "folder", "folders", "directory", "directories", "structure",
         "count", "number", "total", "size",
         "can", "could", "would", "should", "will", "might",
         "about", "just", "only", "also", "even", "still",
