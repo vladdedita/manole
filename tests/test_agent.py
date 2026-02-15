@@ -205,3 +205,83 @@ def test_unknown_tool_returns_error_to_model():
     answer = agent.run("do magic")
     # Agent should still work — unknown tool result goes back as message
     assert answer is not None
+
+
+def test_bracket_format_tool_call():
+    """Model outputs [tool_name(params)] bracket format."""
+    model = _make_model([
+        '[semantic_search(query="invoices")]',
+        "Found 3 invoices.",
+    ])
+    tools = FakeToolRegistry({"semantic_search": "invoice1.pdf\ninvoice2.pdf\ninvoice3.pdf"})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("find invoices")
+
+    assert tools.calls[0] == ("semantic_search", {"query": "invoices"})
+    assert not router.called
+
+
+def test_bare_function_call():
+    """Model outputs bare tool_name(params) without any wrapping."""
+    model = _make_model([
+        'count_files(extension="pdf")',
+        "You have 5 PDFs.",
+    ])
+    tools = FakeToolRegistry({"count_files": "Found 5 .pdf files."})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("how many PDFs?")
+
+    assert tools.calls[0] == ("count_files", {"extension": "pdf"})
+    assert not router.called
+
+
+def test_bare_unknown_tool_not_parsed():
+    """Bare format only matches known tools, not arbitrary words."""
+    model = _make_model([
+        'thinking(about="stuff")',  # not a known tool
+        "Here is my answer.",
+    ])
+    tools = FakeToolRegistry()
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    agent.run("test")
+
+    # Should have fallen through to router since 'thinking' is not a known tool
+    assert router.called
+
+
+def test_bracket_format_directory_tree():
+    """Bracket format works for directory_tree tool."""
+    model = _make_model([
+        '[directory_tree(max_depth=2)]',
+        "Here are your folders.",
+    ])
+    tools = FakeToolRegistry({"directory_tree": "Documents/\n  invoices/\n  photos/"})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("what folders do I have?")
+
+    assert tools.calls[0] == ("directory_tree", {"max_depth": 2})
+    assert not router.called
+
+
+def test_tool_call_extracted_from_prose():
+    """Model outputs tool call buried in prose — parser extracts it."""
+    model = _make_model([
+        'Reply with the tool call: count_files(extension="pdf")\n\nThere are PDF files.',
+        "You have 5 PDFs.",
+    ])
+    tools = FakeToolRegistry({"count_files": "Found 5 .pdf files."})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("how many PDFs?")
+
+    assert tools.calls[0] == ("count_files", {"extension": "pdf"})
+    assert not router.called

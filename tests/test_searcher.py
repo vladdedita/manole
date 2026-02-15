@@ -135,10 +135,9 @@ def test_top_k_passed_to_leann():
     assert leann.last_query == "test"
 
 
-def test_map_prompt_has_false_examples():
-    """Few-shot examples with relevant=false are critical for small models."""
-    assert '"relevant": false' in MAP_SYSTEM
-    assert MAP_SYSTEM.count('"relevant": false') >= 2
+def test_map_prompt_has_empty_facts_example():
+    """Few-shot example with empty facts is critical for small models."""
+    assert '"facts": []' in MAP_SYSTEM
 
 
 def test_multiple_sources_grouped():
@@ -164,12 +163,12 @@ def test_extract_keywords_filters_stopwords():
     result = extract_keywords("what is the file size")
     assert "what" not in result
     assert "the" not in result
-    assert "file" in result
+    assert "file" not in result
     assert "size" in result
 
 
 def test_extract_keywords_lowercase():
-    assert extract_keywords("MacBook PDF") == ["macbook", "pdf"]
+    assert extract_keywords("MacBook PDF") == ["macbook"]
 
 
 def test_extract_keywords_short_words_removed():
@@ -178,7 +177,13 @@ def test_extract_keywords_short_words_removed():
     assert "it" not in result
     assert "an" not in result
     assert "ok" not in result
-    assert "file" in result
+    assert "file" not in result
+
+
+def test_extract_keywords_filters_file_extensions():
+    """File format words are stopwords — too broad for filename grep."""
+    result = extract_keywords("any macbook pdf files")
+    assert result == ["macbook"]
 
 
 class FakeFileReader:
@@ -265,6 +270,44 @@ def test_filename_fallback_without_file_reader():
     output = searcher.search_and_extract("macbook invoice")
 
     assert "none were relevant" in output.lower()
+
+
+def test_filename_fallback_includes_facts_even_when_model_says_irrelevant():
+    """Filename match = relevance signal. Facts included even if model says relevant=False."""
+    results = _make_results("unrelated meeting notes")
+    model = _make_model([
+        json.dumps({"relevant": False, "facts": []}),
+        # Model says irrelevant (e.g. Romanian text) but still extracts facts
+        json.dumps({"relevant": False, "facts": ["Factura #999", "Total: 500 RON"]}),
+    ])
+    leann = FakeLeann(results)
+    file_reader = FakeFileReader(text="Factura fiscala nr. 999, Total: 500 RON")
+    toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
+
+    searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
+    output = searcher.search_and_extract("macbook invoice")
+
+    assert "Factura #999" in output
+    assert "macbook_ssd.pdf" in output
+
+
+def test_filename_fallback_surfaces_file_when_no_facts_extracted():
+    """When model extracts zero facts (e.g. foreign language), file is still surfaced."""
+    results = _make_results("unrelated text")
+    model = _make_model([
+        json.dumps({"relevant": False, "facts": []}),
+        # Model returns empty facts (can't parse Romanian text)
+        json.dumps({"relevant": False, "facts": []}),
+    ])
+    leann = FakeLeann(results)
+    file_reader = FakeFileReader(text="Factura fiscala nr. 999")
+    toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
+
+    searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
+    output = searcher.search_and_extract("macbook invoice")
+
+    assert "macbook_ssd.pdf" in output
+    assert "File found" in output
 
 
 def test_filename_fallback_caps_at_3_files():

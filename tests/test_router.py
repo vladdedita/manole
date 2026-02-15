@@ -1,17 +1,5 @@
-"""Tests for Python fallback router."""
+"""Tests for fallback router — thin safety net."""
 from router import route, _detect_extension
-
-
-def test_count_query_routes_to_count_files():
-    name, params = route("how many PDF files do I have?")
-    assert name == "count_files"
-    assert params["extension"] == "pdf"
-
-
-def test_count_query_no_extension():
-    name, params = route("how many files?")
-    assert name == "count_files"
-    assert params["extension"] is None
 
 
 def test_tree_query():
@@ -23,16 +11,6 @@ def test_tree_query():
 def test_folder_query():
     name, params = route("what folders do I have?")
     assert name == "directory_tree"
-
-
-def test_list_files_query():
-    name, params = route("list files")
-    assert name == "list_files"
-
-
-def test_recent_files_query():
-    name, params = route("show me recent files")
-    assert name == "list_files"
 
 
 def test_file_metadata_query():
@@ -57,8 +35,24 @@ def test_semantic_search_for_content_questions():
     assert name == "semantic_search"
 
 
+def test_count_falls_through_to_semantic():
+    """Router no longer handles count — model should decide."""
+    name, _ = route("how many PDF files do I have?")
+    assert name == "semantic_search"
+
+
+def test_list_falls_through_to_semantic():
+    """Router no longer handles list — model should decide."""
+    name, _ = route("list files")
+    assert name == "semantic_search"
+
+
 def test_detect_extension_pdf():
     assert _detect_extension("how many PDF files") == "pdf"
+
+
+def test_detect_extension_pdfs_plural():
+    assert _detect_extension("how many pdfs") == "pdf"
 
 
 def test_detect_extension_txt():
@@ -69,38 +63,7 @@ def test_detect_extension_none():
     assert _detect_extension("how many files") is None
 
 
-def test_case_insensitive():
-    name, _ = route("HOW MANY PDF FILES?")
-    assert name == "count_files"
-
-
-def test_intent_count_routes_to_count_files_for_file_queries():
-    """Rewriter intent='count' routes to count_files when query is about files."""
+def test_intent_ignored():
+    """Intent param is accepted but no longer drives routing."""
     name, _ = route("how many pdf files do I have?", intent="count")
-    assert name == "count_files"
-
-
-def test_intent_count_falls_through_for_content_queries():
-    """Rewriter intent='count' falls through to semantic_search for non-file queries."""
-    name, _ = route("how many invoices do we have?", intent="count")
-    assert name == "semantic_search"
-
-
-def test_content_count_routes_to_semantic_search():
-    """'how many eggs' should search file contents, not count files."""
-    name, _ = route("how many eggs in carbonara")
-    assert name == "semantic_search"
-
-
-def test_intent_list_with_extension():
-    """Rewriter intent='list' routes to list_files when extension detected."""
-    name, params = route("show me all the pdf documents", intent="list")
-    assert name == "list_files"
-    assert params["extension"] == "pdf"
-
-
-def test_intent_list_without_extension_falls_through():
-    """Rewriter intent='list' without extension falls through to keywords."""
-    name, _ = route("any invoices?", intent="list")
-    # No extension detected and no keyword match, falls through to semantic_search
     assert name == "semantic_search"

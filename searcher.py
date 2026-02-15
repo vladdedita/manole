@@ -3,22 +3,17 @@ from parser import parse_json
 
 MAP_SYSTEM = (
     "You are a data extraction assistant. The user will give you a question and a text passage. "
-    "Decide if the text DIRECTLY answers the question. "
-    "If the text is about a DIFFERENT topic, set relevant to false. "
-    "If relevant, extract the specific data points as short factual strings.\n\n"
+    "Extract any data points from the text that could help answer the question. "
+    "Return them as short factual strings. If the text has nothing useful, return an empty list.\n\n"
     "Example 1:\n"
     'Question: What is the invoice total?\n'
     'Text: Invoice #123, Amount: $500, Due: Jan 15\n'
-    '{"relevant": true, "facts": ["Invoice #123", "Amount: $500", "Due: Jan 15"]}\n\n'
+    '{"facts": ["Invoice #123", "Amount: $500", "Due: Jan 15"]}\n\n'
     "Example 2:\n"
     'Question: What is the invoice total?\n'
     'Text: Meeting notes: discussed new hire onboarding and team lunch plans\n'
-    '{"relevant": false, "facts": []}\n\n'
-    "Example 3:\n"
-    'Question: any macbook invoice?\n'
-    'Text: Sprint review: deployed helm charts, updated CI pipeline, new model released\n'
-    '{"relevant": false, "facts": []}\n\n'
-    'Reply with JSON only: {"relevant": true/false, "facts": [...]}'
+    '{"facts": []}\n\n'
+    'Reply with JSON only: {"facts": [...]}'
 )
 
 MAX_FACTS_PER_CHUNK = 10
@@ -32,6 +27,10 @@ _STOPWORDS = frozenset({
     "all", "each", "every", "this", "that", "there", "here",
     "from", "with", "about", "into", "over", "after", "before",
     "show", "find", "get", "tell", "give", "list",
+    # File format words — too broad for filename grep
+    "pdf", "pdfs", "txt", "csv", "doc", "docx", "xls", "xlsx",
+    "png", "jpg", "jpeg", "json", "xml", "file", "files",
+    "document", "documents",
 })
 
 
@@ -66,10 +65,12 @@ class Searcher:
                 print(f"  [SEARCH] Score filter: {len(chunks)}/{before} above {threshold:.2f}")
 
         # Map: extract facts per chunk
+        # Trust vector search scores for relevance — the model's job is fact extraction.
+        # The 1.2B model often misjudges relevance but still extracts useful facts.
         facts_by_source = {}
         for chunk in chunks:
             extracted = self._extract_facts(query, chunk)
-            if extracted["relevant"] and extracted["facts"]:
+            if extracted["facts"]:
                 source = self._get_source(chunk)
                 facts_by_source.setdefault(source, []).extend(extracted["facts"])
 
@@ -110,20 +111,23 @@ class Searcher:
         parsed = parse_json(raw)
         if parsed is None:
             if self.debug:
-                print(f"  [SEARCH] {source}: parse failed, treating as irrelevant")
-            return {"relevant": False, "facts": []}
+                print(f"  [SEARCH] {source}: parse failed")
+            return {"facts": []}
 
-        facts = parsed.get("facts", [])
+        # Model may return a list directly instead of {"facts": [...]}
+        if isinstance(parsed, list):
+            facts = parsed
+        else:
+            facts = parsed.get("facts", [])
         if not isinstance(facts, list):
             facts = []
         facts = [self._normalize_fact(f) for f in facts[:MAX_FACTS_PER_CHUNK]]
         facts = [f for f in facts if f is not None]
 
-        relevant = parsed.get("relevant", False)
         if self.debug:
-            print(f"  [SEARCH] {source}: relevant={relevant}, facts={len(facts)}")
+            print(f"  [SEARCH] {source}: facts={len(facts)}")
 
-        return {"relevant": relevant, "facts": facts}
+        return {"facts": facts}
 
     def _filename_fallback(self, query: str) -> str:
         """Grep filenames for query keywords, read matches, extract facts."""
@@ -154,7 +158,8 @@ class Searcher:
         if self.debug:
             print(f"  [SEARCH] Filename fallback: reading {[p.name for p in matching_paths]}")
 
-        # Read each file and run map-filter
+        # Read each file and extract facts.
+        # Filename match already establishes relevance — always include extracted facts.
         facts_by_source = {}
         for path in matching_paths:
             text = self.file_reader.read(str(path))
@@ -172,8 +177,12 @@ class Searcher:
             })()
 
             extracted = self._extract_facts(query, fake_chunk)
-            if extracted["relevant"] and extracted["facts"]:
+            # Trust filename match as relevance — include facts even if model says irrelevant
+            if extracted["facts"]:
                 facts_by_source.setdefault(path.name, []).extend(extracted["facts"])
+            else:
+                # Model extracted nothing (e.g. foreign language text) — surface the file anyway
+                facts_by_source.setdefault(path.name, []).append(f"File found: {path.name}")
 
         if not facts_by_source:
             return "Search returned results but none were relevant to the query."
@@ -188,13 +197,16 @@ class Searcher:
     @staticmethod
     def _get_source(chunk) -> str:
         meta = chunk.metadata or {}
-        return (
+        name = (
             meta.get("source")
             or meta.get("file_name")
             or meta.get("file")
             or meta.get("filename")
-            or chunk.id
         )
+        if not name and meta.get("file_path"):
+            from pathlib import PurePosixPath
+            name = PurePosixPath(meta["file_path"]).name
+        return name or chunk.id
 
     @staticmethod
     def _normalize_fact(f) -> str | None:

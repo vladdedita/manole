@@ -1,18 +1,69 @@
 """Agent loop orchestrator — model decides what tools to call at each step."""
+import json
 import re
 from parser import parse_json
 
+TOOL_SCHEMAS = [
+    {
+        "name": "semantic_search",
+        "description": "Search inside file contents for information",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Search query"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "count_files",
+        "description": "Count files, optionally filtered by extension",
+        "parameters": {
+            "type": "object",
+            "properties": {"extension": {"type": "string", "description": "File extension filter, e.g. pdf"}},
+        },
+    },
+    {
+        "name": "list_files",
+        "description": "List recent files, optionally filtered by extension",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "extension": {"type": "string", "description": "File extension filter"},
+                "limit": {"type": "integer", "description": "Max files to return"},
+            },
+        },
+    },
+    {
+        "name": "grep_files",
+        "description": "Find files by name pattern",
+        "parameters": {
+            "type": "object",
+            "properties": {"pattern": {"type": "string", "description": "Filename pattern to search for"}},
+            "required": ["pattern"],
+        },
+    },
+    {
+        "name": "file_metadata",
+        "description": "Get file size and dates",
+        "parameters": {
+            "type": "object",
+            "properties": {"name_hint": {"type": "string", "description": "Filename or partial name"}},
+            "required": ["name_hint"],
+        },
+    },
+    {
+        "name": "directory_tree",
+        "description": "Show folder structure",
+        "parameters": {
+            "type": "object",
+            "properties": {"max_depth": {"type": "integer", "description": "Max depth to show"}},
+        },
+    },
+]
+
 SYSTEM_PROMPT = (
-    "You are a personal file assistant. You help users find information in their local files.\n\n"
-    "You have access to tools to search file contents and inspect the filesystem.\n\n"
-    "Rules:\n"
-    "- Call semantic_search when the user asks about information INSIDE files\n"
-    "- Call filesystem tools (count_files, list_files, grep_files, directory_tree) "
-    "for questions ABOUT files themselves\n"
-    "- You can call multiple tools if needed to get a complete answer\n"
-    "- If a search returns no results, try a different query or tool before giving up\n"
-    "- Keep answers concise and grounded in what the tools return\n"
-    "- NEVER make up information that wasn't in tool results"
+    "You are a file assistant. Answer questions using ONLY tool results.\n"
+    "NEVER answer from general knowledge. Always call a tool first.\n"
+    "List of tools: " + json.dumps(TOOL_SCHEMAS)
 )
 
 
@@ -77,7 +128,10 @@ class Agent:
                         print(f"  [AGENT] Fallback router: {tool_name}({params})")
                     result = self.tools.execute(tool_name, params)
                     messages.append({"role": "assistant", "content": raw})
-                    messages.append({"role": "tool", "name": tool_name, "content": result})
+                    messages.append({
+                        "role": "tool",
+                        "content": json.dumps({"tool": tool_name, "result": result}),
+                    })
                     continue
                 else:
                     if self.debug:
@@ -99,7 +153,10 @@ class Agent:
                 print(f"  [AGENT] Result: {result[:200]}")
 
             messages.append({"role": "assistant", "content": raw})
-            messages.append({"role": "tool", "name": tool_name, "content": result})
+            messages.append({
+                "role": "tool",
+                "content": json.dumps({"tool": tool_name, "result": result}),
+            })
 
         # Max steps reached — force synthesis
         if self.debug:
@@ -111,16 +168,23 @@ class Agent:
         })
         return self.model.generate(messages)
 
+    _KNOWN_TOOLS = frozenset({
+        "semantic_search", "count_files", "list_files", "grep_files",
+        "file_metadata", "directory_tree", "respond",
+    })
+
     def _parse_tool_call(self, response: str) -> dict | None:
         """Parse tool call from model output.
 
         Tries:
-        1. LFM2.5 native format: <|tool_call_start|>fn(args)<|tool_call_end|>
+        1. LFM2.5 native format: <|tool_call_start|>[fn(args)]<|tool_call_end|>
         2. JSON format: {"name": "fn", "params": {...}}
+        3. Bracket-wrapped: [tool_name(params)]
+        4. Known tool call anywhere in response: tool_name(params)
         """
-        # Try LFM2.5 native format
+        # Try LFM2.5 native format (brackets inside special tokens)
         tc_match = re.search(
-            r'<\|tool_call_start\|>(.*?)<\|tool_call_end\|>',
+            r'<\|tool_call_start\|>\[?(.*?)\]?<\|tool_call_end\|>',
             response,
             re.DOTALL,
         )
@@ -136,6 +200,24 @@ class Agent:
                 "name": parsed["name"],
                 "params": parsed.get("params", parsed.get("parameters", {})),
             }
+
+        # Try bracket-wrapped format: [tool_name(params)]
+        bracket_match = re.search(r'\[(\w+\(.*?\))\]', response, re.DOTALL)
+        if bracket_match:
+            result = self._parse_native_tool_call(bracket_match.group(1))
+            if result:
+                return result
+
+        # Try bare function call anywhere in response
+        bare_match = re.search(
+            r'(' + '|'.join(self._KNOWN_TOOLS) + r')\(([^)]*)\)',
+            response,
+        )
+        if bare_match:
+            call_str = bare_match.group(0)
+            result = self._parse_native_tool_call(call_str)
+            if result:
+                return result
 
         return None
 

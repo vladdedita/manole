@@ -5,11 +5,11 @@ REWRITER_SYSTEM = (
     "You rewrite user queries for searching local files. "
     "Given a question and optional conversation history, produce JSON with:\n"
     '- "intent": one of "factual", "count", "list", "compare", "summarize"\n'
-    '  Use "count" ONLY for counting files/documents, NOT for counting things inside files.\n'
+    '  Use "count" when the user asks "how many" of something.\n'
     '- "search_query": expanded query optimized for vector search '
     "(add synonyms, related terms, full forms of abbreviations)\n"
     '- "resolved_query": rewrite the user\'s question with pronouns and references '
-    "resolved. Always phrase it as searching in the user's files.\n\n"
+    "resolved. ALWAYS frame it as looking in the user's files — never answer from general knowledge.\n\n"
     "Examples:\n\n"
     'Question: "any invoices?"\n'
     '{"intent": "list", "search_query": "invoice receipt payment billing", '
@@ -20,6 +20,14 @@ REWRITER_SYSTEM = (
     'Question: "how many eggs in carbonara"\n'
     '{"intent": "factual", "search_query": "carbonara recipe eggs ingredients", '
     '"resolved_query": "How many eggs does the carbonara recipe call for according to my files?"}\n\n'
+    "With conversation history:\n"
+    'Recent conversation:\n'
+    '  User: any animal pictures?\n'
+    '  Assistant: I found some image files. Would you like details?\n'
+    'Question: "yes"\n'
+    '{"intent": "list", "search_query": "animal pictures images photos", '
+    '"resolved_query": "Show me the animal pictures found in my files."}\n\n'
+    "IMPORTANT: Always search the user's files. Never answer from general knowledge.\n"
     "Reply with a single JSON object only."
 )
 
