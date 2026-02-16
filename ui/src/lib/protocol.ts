@@ -4,7 +4,7 @@ export interface Request {
   params: Record<string, unknown>;
 }
 
-export type ResponseType = "result" | "token" | "agent_step" | "error" | "status" | "progress";
+export type ResponseType = "result" | "token" | "agent_step" | "error" | "status" | "progress" | "log";
 
 export interface Response {
   id: number | null;

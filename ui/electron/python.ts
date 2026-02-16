@@ -17,7 +17,8 @@ export class PythonBridge {
       const binary = join(process.resourcesPath, "manole-server");
       return { command: binary, args: [] };
     }
-    const projectRoot = join(__dirname, "..", "..");
+    // __dirname is ui/out/main in dev, so 3 levels up to project root
+    const projectRoot = join(__dirname, "..", "..", "..");
     const python = join(projectRoot, ".venv", "bin", "python");
     const serverPy = join(projectRoot, "server.py");
     return { command: python, args: [serverPy] };
@@ -27,6 +28,7 @@ export class PythonBridge {
     const { command, args } = this.getPythonCommand();
     this.globalHandler = onMessage;
 
+    console.error(`[python] spawning: ${command} ${args.join(" ")}`);
     this.process = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -52,7 +54,11 @@ export class PythonBridge {
     });
 
     this.process.stderr?.on("data", (data: Buffer) => {
-      console.error("[python]", data.toString());
+      const text = data.toString();
+      console.error("[python]", text);
+      if (this.globalHandler) {
+        this.globalHandler({ id: null, type: "log" as any, data: { text } });
+      }
     });
 
     this.process.on("exit", (code) => {

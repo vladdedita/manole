@@ -91,7 +91,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 }
 
 export function useChat() {
-  const { send, subscribe, backendState } = usePython();
+  const { send, subscribe, backendState, logs } = usePython();
   const [state, dispatch] = useReducer(chatReducer, {
     messages: [],
     isLoading: false,
@@ -140,6 +140,7 @@ export function useChat() {
     isLoading: state.isLoading,
     error: state.error,
     backendState,
+    logs,
     sendMessage,
     initBackend,
     clearChat: () => dispatch({ type: "clear" }),

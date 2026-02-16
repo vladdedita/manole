@@ -51,6 +51,12 @@ class Server:
         self.data_dir = None
         self.index_name = None
 
+    def _log(self, message: str):
+        """Send a log message to the UI via stderr."""
+        import sys as _sys
+        _sys.stderr.write(message + "\n")
+        _sys.stderr.flush()
+
     def handle_ping(self, req_id) -> dict:
         data = {
             "state": self.state,
@@ -92,19 +98,24 @@ class Server:
             return {"id": req_id, "type": "error", "data": {"message": f"Not a directory: {data_dir}"}}
 
         send(None, "status", {"state": "loading_model"})
+        self._log("Loading model...")
 
         # Load model
         self.model = ModelManager()
         self.model.load()
+        self._log("Model loaded.")
 
         send(None, "status", {"state": "indexing"})
+        self._log(f"Indexing {data_dir_path}...")
 
         # Build or reuse index
         reuse = params.get("reuse")
         if reuse:
             self.index_name = reuse
+            self._log(f"Reusing index: {reuse}")
         else:
             self.index_name = build_index(data_dir_path)
+            self._log(f"Index built: {self.index_name}")
 
         index_path = find_index_path(self.index_name)
 
@@ -132,6 +143,7 @@ class Server:
         self.data_dir = str(data_dir_path)
         self.conversation_history = []
         self.state = "ready"
+        self._log("All components wired. Ready.")
 
         send(None, "status", {"state": "ready"})
         return {
@@ -147,6 +159,8 @@ class Server:
         query = params.get("text", "").strip()
         if not query:
             return {"id": req_id, "type": "error", "data": {"message": "Empty query"}}
+
+        self._log(f"Query: {query[:80]}")
 
         def on_token(text):
             send(req_id, "token", {"text": text})

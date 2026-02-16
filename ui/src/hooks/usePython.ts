@@ -5,6 +5,7 @@ export type MessageHandler = (response: Response) => void;
 
 export function usePython() {
   const [backendState, setBackendState] = useState<string>("not_initialized");
+  const [logs, setLogs] = useState<string[]>([]);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
 
   useEffect(() => {
@@ -12,6 +13,10 @@ export function usePython() {
       if (response.type === "status") {
         const data = response.data as unknown as StatusData;
         setBackendState(data.state);
+      }
+      if (response.type === "log") {
+        const text = (response.data as { text: string }).text;
+        setLogs((prev) => [...prev.slice(-500), text]);
       }
       for (const handler of handlersRef.current) {
         handler(response);
@@ -31,5 +36,5 @@ export function usePython() {
     return () => { handlersRef.current.delete(handler); };
   }, []);
 
-  return { send, subscribe, backendState };
+  return { send, subscribe, backendState, logs };
 }
