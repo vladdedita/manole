@@ -1,5 +1,5 @@
-appId: com.neurofind
-productName: NeuroFind
+appId: com.manole
+productName: Manole
 directories:
   buildResources: build
   output: release

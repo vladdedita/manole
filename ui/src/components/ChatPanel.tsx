@@ -33,22 +33,44 @@ function WelcomeScreen({ onOpenFolder }: { onOpenFolder: () => void }) {
     <motion.div
       initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
       animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
       className="flex flex-1 items-center justify-center"
     >
-      <div className="text-center">
-        <h1 className="font-display text-4xl font-bold text-text-primary tracking-tight">
-          Your files, your AI.
-        </h1>
-        <p className="mt-3 font-sans text-text-secondary text-base">
-          Open a folder to get started with intelligent file search.
-        </p>
-        <button
+      <div className="text-center max-w-md">
+        <motion.h1
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.6 }}
+          className="font-display text-5xl font-bold text-text-primary tracking-tight"
+        >
+          Manole
+        </motion.h1>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5, duration: 0.6 }}
+          className="mt-2 font-display text-lg italic text-text-tertiary"
+        >
+          the obsessive searcher
+        </motion.p>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8, duration: 0.6 }}
+          className="mt-6 font-sans text-text-secondary text-sm leading-relaxed"
+        >
+          Select a folder. Manole will read every document,<br />
+          build an index, and answer your questions.
+        </motion.p>
+        <motion.button
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.0, duration: 0.4 }}
           onClick={onOpenFolder}
-          className="mt-6 px-6 py-2.5 rounded-lg bg-accent text-bg-primary font-sans font-medium text-sm hover:bg-accent-hover transition-colors active:scale-95"
+          className="mt-8 px-8 py-3 rounded-lg bg-accent text-bg-primary font-sans font-medium text-sm hover:bg-accent-hover transition-colors active:scale-95"
         >
           Open Folder
-        </button>
+        </motion.button>
       </div>
     </motion.div>
   );

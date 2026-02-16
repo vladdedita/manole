@@ -14,7 +14,7 @@ function createWindow(): void {
     minHeight: 500,
     show: false,
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#1a1714',
+    backgroundColor: '#141210',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -38,7 +38,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.neurofind')
+  electronApp.setAppUserModelId('com.manole')
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })

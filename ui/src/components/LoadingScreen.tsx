@@ -31,32 +31,41 @@ export function LoadingScreen({ backendState }: LoadingScreenProps) {
         transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
         className="font-display text-4xl font-bold text-text-primary tracking-tight"
       >
-        NeuroFind
+        Manole
       </motion.h1>
 
       {/* Step indicator */}
-      <div className="relative flex flex-col gap-0 pl-3">
-        {/* Vertical line */}
-        <div className="absolute left-[17px] top-3 bottom-3 w-px bg-border" />
-
+      <div className="flex flex-col gap-0">
         {STEPS.map((step, i) => {
           const isDone = i < current;
           const isActive = i === current;
+          const isLast = i === STEPS.length - 1;
 
           return (
-            <div key={step.key} className="relative flex items-center gap-4 py-2.5">
-              {/* Dot */}
-              <div className="relative z-10 flex items-center justify-center w-5 h-5">
-                {isActive ? (
-                  <motion.div
-                    animate={{ scale: [1, 1.4, 1] }}
-                    transition={{ duration: 1.2, repeat: Infinity }}
-                    className="h-2.5 w-2.5 rounded-full bg-accent"
-                  />
-                ) : (
+            <div key={step.key} className="flex items-stretch">
+              {/* Left column: dot + connector */}
+              <div className="flex flex-col items-center w-6">
+                {/* Dot */}
+                <div className="flex items-center justify-center h-6 w-6 shrink-0">
+                  {isActive ? (
+                    <motion.div
+                      animate={{ scale: [1, 1.4, 1] }}
+                      transition={{ duration: 1.2, repeat: Infinity }}
+                      className="h-2.5 w-2.5 rounded-full bg-accent"
+                    />
+                  ) : (
+                    <div
+                      className={`h-2.5 w-2.5 rounded-full transition-colors duration-500 ${
+                        isDone ? "bg-accent" : "bg-bg-elevated"
+                      }`}
+                    />
+                  )}
+                </div>
+                {/* Connector line */}
+                {!isLast && (
                   <div
-                    className={`h-2.5 w-2.5 rounded-full transition-colors duration-500 ${
-                      isDone ? "bg-accent" : "bg-bg-elevated"
+                    className={`w-px flex-1 min-h-4 transition-colors duration-500 ${
+                      isDone ? "bg-accent/40" : "bg-border"
                     }`}
                   />
                 )}
@@ -64,7 +73,7 @@ export function LoadingScreen({ backendState }: LoadingScreenProps) {
 
               {/* Label */}
               <span
-                className={`font-mono text-sm transition-colors duration-500 ${
+                className={`font-mono text-sm pl-3 pt-0.5 pb-3 transition-colors duration-500 ${
                   isActive
                     ? "text-text-primary"
                     : isDone
