@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PythonBridge } from './python'
@@ -50,6 +50,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle('python:send', async (_event, method: string, params?: Record<string, unknown>) => {
     return python.send(method, params ?? {})
+  })
+
+  ipcMain.handle('dialog:openDirectory', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory'],
+    })
+    if (result.canceled) return null
+    return result.filePaths[0]
   })
 
   app.on('activate', () => {

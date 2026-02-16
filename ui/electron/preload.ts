@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('api', {
     return () => {
       ipcRenderer.removeListener('python:message', listener)
     }
-  }
+  },
+  selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory')
 })

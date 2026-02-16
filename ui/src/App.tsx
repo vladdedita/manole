@@ -9,12 +9,7 @@ export default function App() {
   const [directory, setDirectory] = useState<string | undefined>();
 
   const handleOpenFolder = useCallback(async () => {
-    // selectDirectory will be wired in Task 9 (FileBrowser).
-    // For now, use the Electron dialog if available.
-    if (!window.api || typeof (window.api as any).selectDirectory !== "function") {
-      return;
-    }
-    const result = await (window.api as any).selectDirectory();
+    const result = await window.api.selectDirectory();
     if (result) {
       setDirectory(result);
       await initBackend(result);
