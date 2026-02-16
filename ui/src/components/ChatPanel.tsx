@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ChatMessage } from "../hooks/useChat";
 import { MessageBubble } from "./MessageBubble";
 
@@ -132,23 +131,21 @@ export function ChatPanel({
         <WelcomeScreen onOpenFolder={onOpenFolder} />
       ) : (
         <div className="relative flex-1 min-h-0">
-          <ScrollArea className="h-full">
-            <div
-              ref={scrollRef}
-              onScroll={checkNearBottom}
-              role="log"
-              aria-live="polite"
-              className="flex flex-col gap-3 p-5 h-full overflow-y-auto"
-            >
-              <AnimatePresence initial={false}>
-                {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} />
-                ))}
-              </AnimatePresence>
+          <div
+            ref={scrollRef}
+            onScroll={checkNearBottom}
+            role="log"
+            aria-live="polite"
+            className="flex flex-col gap-3 p-5 h-full overflow-y-auto"
+          >
+            <AnimatePresence initial={false}>
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} />
+              ))}
+            </AnimatePresence>
 
-              {showTypingIndicator && <TypingIndicator />}
-            </div>
-          </ScrollArea>
+            {showTypingIndicator && <TypingIndicator />}
+          </div>
 
           {/* New message pill */}
           <AnimatePresence>

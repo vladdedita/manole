@@ -24,7 +24,6 @@ export function AgentSteps({ steps }: AgentStepsProps) {
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="mt-2">
       <CollapsibleTrigger
-        aria-expanded={open}
         className="font-mono text-[10px] uppercase tracking-widest text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
       >
         {steps.length} step{steps.length !== 1 ? "s" : ""}
@@ -34,7 +33,7 @@ export function AgentSteps({ steps }: AgentStepsProps) {
         <div className="relative mt-2 ml-2 border-l border-accent/30 pl-4">
           {steps.map((step, i) => (
             <motion.div
-              key={`${step.step}-${step.tool}`}
+              key={`step-${i}`}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.08, duration: 0.2 }}
