@@ -6,7 +6,9 @@
 
 **Architecture:** Python backend runs as a child process of Electron. Communication is NDJSON over stdin/stdout. A thin `server.py` adapter wraps the existing Agent/Searcher/Model modules. The only modification to existing code is adding streaming support to `ModelManager.generate()`.
 
-**Tech Stack:** electron-vite, React 18, shadcn/ui, Tailwind CSS, TypeScript, PyInstaller
+**Tech Stack:** electron-vite, React 18, shadcn/ui, Tailwind CSS, TypeScript, Motion (framer-motion), PyInstaller
+
+**Visual Design:** `docs/plans/2026-02-16-electron-ui-visual-design.md` — Warm Brutalism aesthetic with Cormorant Garamond + DM Sans + IBM Plex Mono typography, dark amber palette, film grain texture, Motion animations for agent step reveals and streaming.
 
 **Design doc:** `docs/plans/2026-02-16-electron-ui-design.md`
 
@@ -663,6 +665,25 @@ npx shadcn@latest init
 
 Choose: TypeScript, default style, CSS variables for colors.
 
+**Step 4b: Install Motion library**
+
+```bash
+cd /Users/ded/Projects/assist/manole/ui
+npm i motion
+```
+
+**Step 4c: Add Google Fonts**
+
+Add to `ui/src/assets/main.css` (or the renderer's root CSS):
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=DM+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+```
+
+**Step 4d: Apply visual design theme**
+
+Override shadcn CSS variables and add Tailwind font families per `docs/plans/2026-02-16-electron-ui-visual-design.md` — the "shadcn Theme Overrides" and "Tailwind Config Extensions" sections. Add the film grain overlay CSS to the root stylesheet.
+
 **Step 5: Verify it runs**
 
 ```bash
@@ -1179,7 +1200,7 @@ git commit -m "feat: add usePython and useChat hooks for backend communication"
 
 ### Task 7: Build the chat UI components
 
-The main chat interface using shadcn components.
+The main chat interface using shadcn components. **Follow the visual design system in `docs/plans/2026-02-16-electron-ui-visual-design.md` exactly** — it specifies colors, fonts, animations, component structure, and Motion usage for each component.
 
 **Files:**
 - Create: `ui/src/components/ChatPanel.tsx`
@@ -1194,6 +1215,17 @@ The main chat interface using shadcn components.
 cd /Users/ded/Projects/assist/manole/ui
 npx shadcn@latest add button input scroll-area collapsible badge
 ```
+
+**IMPORTANT:** All component styling below is placeholder. The **actual** styles, colors, animations, fonts, and Motion usage MUST follow `docs/plans/2026-02-16-electron-ui-visual-design.md`. Key points:
+- Use `font-display` (Cormorant Garamond) for headings
+- Use `font-sans` (DM Sans) for body text/chat messages
+- Use `font-mono` (IBM Plex Mono) for file paths, tool names, agent traces
+- Use warm dark palette (`--bg-primary`, `--accent`, etc.)
+- Use Motion (`motion/react`) for message entry, agent step stagger, welcome screen entrance
+- Add film grain overlay, typing indicator dots, streaming cursor
+- User messages: right-aligned, amber accent bg, rounded-br-md
+- Assistant messages: left-aligned, bg-tertiary, rounded-bl-md
+- Agent steps: vertical amber timeline with staggered slide-in animation
 
 **Step 2: Create MessageBubble component**
 
