@@ -1,4 +1,5 @@
 """ModelManager: single LFM2.5-1.2B-Instruct model with generate()."""
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -21,8 +22,29 @@ class ModelManager:
             verbose=False,
         )
 
-    def generate(self, messages: list[dict], max_tokens: int = 1024) -> str:
+    def generate(self, messages: list[dict], max_tokens: int = 1024,
+                 stream: bool = False, on_token: Callable[[str], None] | None = None) -> str:
         self.model.reset()
+        if stream:
+            chunks = self.model.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.1,
+                top_k=50,
+                top_p=0.1,
+                repeat_penalty=1.05,
+                stream=True,
+            )
+            parts = []
+            for chunk in chunks:
+                delta = chunk["choices"][0].get("delta", {})
+                text = delta.get("content", "")
+                if text:
+                    parts.append(text)
+                    if on_token:
+                        on_token(text)
+            return "".join(parts)
+
         response = self.model.create_chat_completion(
             messages=messages,
             max_tokens=max_tokens,
