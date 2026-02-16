@@ -80,7 +80,7 @@ class Agent:
         self.rewriter = rewriter
         self.debug = debug
 
-    def run(self, query: str, history: list[dict] = None) -> str:
+    def run(self, query: str, history: list[dict] = None, on_token=None) -> str:
         """Run the agent loop for a user query."""
         # Rewrite query for better intent detection and search
         rewrite = None
@@ -109,7 +109,7 @@ class Agent:
             if self.debug:
                 print(f"  [AGENT] Step {step + 1}/{self.MAX_STEPS}")
 
-            raw = self.model.generate(messages)
+            raw = self.model.generate(messages, stream=bool(on_token), on_token=on_token)
 
             if self.debug:
                 print(f"  [AGENT] Response: {raw[:200]}")
@@ -182,7 +182,7 @@ class Agent:
             "role": "user",
             "content": "Give a concise final answer based on the information above.",
         })
-        return self.model.generate(messages)
+        return self.model.generate(messages, stream=bool(on_token), on_token=on_token)
 
     _KNOWN_TOOLS = frozenset({
         "semantic_search", "count_files", "list_files", "grep_files",

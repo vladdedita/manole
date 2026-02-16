@@ -148,8 +148,14 @@ class Server:
         if not query:
             return {"id": req_id, "type": "error", "data": {"message": "Empty query"}}
 
-        # Run agent — for now, non-streaming (streaming wired in Task 3)
-        response = self.agent.run(query, history=self.conversation_history)
+        def on_token(text):
+            send(req_id, "token", {"text": text})
+
+        response = self.agent.run(
+            query,
+            history=self.conversation_history,
+            on_token=on_token,
+        )
 
         self.conversation_history.append({"role": "user", "content": query})
         self.conversation_history.append({"role": "assistant", "content": response})

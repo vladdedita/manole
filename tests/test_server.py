@@ -81,6 +81,47 @@ class TestToggleDebug:
         assert result["data"]["debug"] is True
 
 
+class TestQueryStreaming:
+    """Test streaming tokens through the query handler."""
+
+    def test_query_streams_tokens(self):
+        from server import Server
+        sent_messages = []
+
+        import server as srv_mod
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent_messages.append(
+            {"id": rid, "type": rtype, "data": data}
+        )
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+
+            mock_agent = MagicMock()
+            mock_agent.run.return_value = "hello world"
+            srv.agent = mock_agent
+
+            result = srv.handle_query(1, {"text": "test query"})
+            assert result["type"] == "result"
+            assert result["data"]["text"] == "hello world"
+
+            # Verify agent.run was called with on_token callback
+            call_kwargs = mock_agent.run.call_args
+            assert "on_token" in call_kwargs.kwargs
+            assert callable(call_kwargs.kwargs["on_token"])
+
+            # Simulate what happens when on_token is called
+            on_token_cb = call_kwargs.kwargs["on_token"]
+            on_token_cb("hello")
+            on_token_cb(" world")
+            assert len(sent_messages) == 2
+            assert sent_messages[0] == {"id": 1, "type": "token", "data": {"text": "hello"}}
+            assert sent_messages[1] == {"id": 1, "type": "token", "data": {"text": " world"}}
+        finally:
+            srv_mod.send = original_send
+
+
 class TestShutdown:
     """Test clean shutdown."""
 
