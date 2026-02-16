@@ -1,10 +1,49 @@
+import { useCallback, useState } from "react";
+import { useChat } from "./hooks/useChat";
+import { ChatPanel } from "./components/ChatPanel";
+import { StatusBar } from "./components/StatusBar";
+
 export default function App() {
+  const { messages, isLoading, error, backendState, sendMessage, initBackend } =
+    useChat();
+  const [directory, setDirectory] = useState<string | undefined>();
+
+  const handleOpenFolder = useCallback(async () => {
+    // selectDirectory will be wired in Task 9 (FileBrowser).
+    // For now, use the Electron dialog if available.
+    const api = window.api as Record<string, unknown>;
+    if (typeof api.selectDirectory === "function") {
+      const result = await (api.selectDirectory as () => Promise<string | null>)();
+      if (result) {
+        setDirectory(result);
+        await initBackend(result);
+      }
+    }
+  }, [initBackend]);
+
   return (
-    <div className="flex h-screen items-center justify-center bg-[#1a1714] text-[#e8e0d6]">
-      <div className="text-center">
-        <h1 className="font-display text-4xl font-bold tracking-tight">NeuroFind</h1>
-        <p className="mt-2 text-[#a89b8c]">Your files, your AI.</p>
-      </div>
+    <div className="app-root flex flex-col h-screen bg-bg-primary">
+      {/* Header */}
+      <header className="flex items-center justify-between h-12 px-5 border-b border-border bg-bg-secondary shrink-0">
+        <span className="font-display text-xl font-semibold text-text-primary tracking-tight">
+          NeuroFind
+        </span>
+        <span className="font-mono text-xs text-text-tertiary hover:text-accent transition-colors cursor-default">
+          {directory ?? ""}
+        </span>
+      </header>
+
+      {/* Chat area */}
+      <ChatPanel
+        messages={messages}
+        isLoading={isLoading}
+        error={error}
+        onSend={sendMessage}
+        onOpenFolder={handleOpenFolder}
+      />
+
+      {/* Status bar */}
+      <StatusBar backendState={backendState} directory={directory} />
     </div>
-  )
+  );
 }
