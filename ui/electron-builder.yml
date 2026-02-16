@@ -1,0 +1,19 @@
+appId: com.neurofind
+productName: NeuroFind
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**/*
+extraResources:
+  - from: "../dist/manole-server"
+    to: "manole-server"
+  - from: "../models/"
+    to: "models/"
+mac:
+  target: dmg
+  category: public.app-category.productivity
+win:
+  target: nsis
+linux:
+  target: AppImage
