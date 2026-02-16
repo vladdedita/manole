@@ -1,8 +1,10 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { PythonBridge } from './python'
 
 let mainWindow: BrowserWindow | null = null
+const python = new PythonBridge()
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -41,9 +43,22 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
   createWindow()
+
+  python.spawn((response) => {
+    mainWindow?.webContents.send('python:message', response)
+  })
+
+  ipcMain.handle('python:send', async (_event, method: string, params?: Record<string, unknown>) => {
+    return python.send(method, params ?? {})
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  python.kill()
 })
 
 app.on('window-all-closed', () => {

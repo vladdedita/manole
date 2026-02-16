@@ -1,0 +1,12 @@
+import type { Response } from "./protocol";
+
+export interface PythonAPI {
+  send: (method: string, params?: Record<string, unknown>) => Promise<Response>;
+  onMessage: (callback: (response: Response) => void) => () => void;
+}
+
+declare global {
+  interface Window {
+    api: PythonAPI;
+  }
+}

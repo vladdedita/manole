@@ -1,13 +1,13 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron'
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-  } catch (error) {
-    console.error(error)
+contextBridge.exposeInMainWorld('api', {
+  send: (method: string, params?: Record<string, unknown>) =>
+    ipcRenderer.invoke('python:send', method, params),
+  onMessage: (callback: (response: unknown) => void) => {
+    const listener = (_event: unknown, response: unknown) => callback(response)
+    ipcRenderer.on('python:message', listener)
+    return () => {
+      ipcRenderer.removeListener('python:message', listener)
+    }
   }
-} else {
-  // @ts-ignore
-  window.electron = electronAPI
-}
+})
