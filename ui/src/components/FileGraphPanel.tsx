@@ -36,6 +36,7 @@ const FILE_TYPE_COLORS: Record<string, string> = {
   py: "#7aa2d4",
   js: "#d4a85c",
   ts: "#d4a85c",
+  dir: "#635a50",
 };
 
 function getEdgeStyle(edge: FileEdge, tab: TabId): Partial<Edge> {

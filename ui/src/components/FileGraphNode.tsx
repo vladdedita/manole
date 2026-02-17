@@ -10,6 +10,7 @@ const FILE_TYPE_COLORS: Record<string, string> = {
   ts: "#d4a85c",
   json: "#a59888",
   csv: "#7aa2d4",
+  dir: "#635a50",
 };
 
 function getTypeColor(type: string): string {

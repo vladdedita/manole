@@ -122,21 +122,41 @@ def compute_reference_edges(
     return edges
 
 
-def compute_structure_edges(file_ids: list[str]) -> list[dict]:
-    """Compute directory hierarchy edges."""
+def compute_structure_edges(file_ids: list[str]) -> tuple[list[dict], list[dict]]:
+    """Compute directory hierarchy edges and directory nodes.
+
+    Returns:
+        Tuple of (edges, directory_nodes). Directory nodes are synthetic nodes
+        representing folders, needed so the graph can display the tree structure.
+    """
+    # Collect all directory paths
     dirs = set()
     for fid in file_ids:
         parts = PurePosixPath(fid).parts
         for i in range(1, len(parts)):
             dirs.add("/".join(parts[:i]))
 
+    # Create synthetic directory nodes
+    dir_nodes = []
+    for d in sorted(dirs):
+        pp = PurePosixPath(d)
+        dir_nodes.append({
+            "id": d,
+            "name": pp.name + "/",
+            "type": "dir",
+            "size": 0,
+            "dir": str(pp.parent) if str(pp.parent) != "." else "",
+            "passageCount": 0,
+        })
+
     edges = []
     seen = set()
 
+    # File → parent directory edges
     for fid in file_ids:
         pp = PurePosixPath(fid)
         parent = str(pp.parent) if str(pp.parent) != "." else ""
-        if parent:
+        if parent and parent in dirs:
             pair = (parent, fid)
             if pair not in seen:
                 seen.add(pair)
@@ -148,10 +168,11 @@ def compute_structure_edges(file_ids: list[str]) -> list[dict]:
                     "label": "contains",
                 })
 
+    # Directory → parent directory edges
     for d in dirs:
         pp = PurePosixPath(d)
         parent = str(pp.parent) if str(pp.parent) != "." else ""
-        if parent:
+        if parent and parent in dirs:
             pair = (parent, d)
             if pair not in seen:
                 seen.add(pair)
@@ -163,7 +184,27 @@ def compute_structure_edges(file_ids: list[str]) -> list[dict]:
                     "label": "contains",
                 })
 
-    return edges
+    # If no subdirectories exist (all files at root), connect all files to a
+    # virtual root so the structure tab still shows something
+    if not edges and len(file_ids) > 1:
+        dir_nodes.append({
+            "id": ".",
+            "name": "/",
+            "type": "dir",
+            "size": 0,
+            "dir": "",
+            "passageCount": 0,
+        })
+        for fid in file_ids:
+            edges.append({
+                "source": ".",
+                "target": fid,
+                "type": "structure",
+                "weight": 1.0,
+                "label": "contains",
+            })
+
+    return edges, dir_nodes
 
 
 def load_passages_from_index(index_path: str) -> list[dict]:
@@ -278,6 +319,9 @@ def build_file_graph(
         pass
 
     edges.extend(compute_reference_edges(passages_by_file, node_ids))
-    edges.extend(compute_structure_edges(list(node_ids)))
+
+    structure_edges, dir_nodes = compute_structure_edges(list(node_ids))
+    edges.extend(structure_edges)
+    nodes.extend(dir_nodes)
 
     return {"nodes": nodes, "edges": edges}

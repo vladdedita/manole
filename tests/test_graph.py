@@ -117,12 +117,21 @@ class TestStructureEdges:
     def test_parent_child_edges(self):
         from graph import compute_structure_edges
         file_ids = ["docs/a.pdf", "docs/b.pdf", "src/c.py"]
-        edges = compute_structure_edges(file_ids)
+        edges, dir_nodes = compute_structure_edges(file_ids)
         assert len(edges) > 0
         assert all(e["type"] == "structure" for e in edges)
+        # Should create directory nodes for "docs" and "src"
+        dir_ids = {n["id"] for n in dir_nodes}
+        assert "docs" in dir_ids
+        assert "src" in dir_ids
+        assert all(n["type"] == "dir" for n in dir_nodes)
 
-    def test_root_files_have_no_parent(self):
+    def test_root_files_get_virtual_root(self):
         from graph import compute_structure_edges
         file_ids = ["a.pdf", "b.pdf"]
-        edges = compute_structure_edges(file_ids)
-        assert isinstance(edges, list)
+        edges, dir_nodes = compute_structure_edges(file_ids)
+        # Root-level files should get a virtual root node connecting them
+        assert len(edges) == 2
+        assert all(e["source"] == "." for e in edges)
+        dir_ids = {n["id"] for n in dir_nodes}
+        assert "." in dir_ids
