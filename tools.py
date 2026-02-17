@@ -74,12 +74,14 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "folder_stats",
-        "description": "Show folder sizes and file counts. Use for 'biggest folder', 'folder sizes', 'which folder has most files'.",
+        "description": "Show folder sizes and file counts. Use for 'biggest folder', 'folder sizes', 'which folder has most files', 'folder with most PDFs'.",
         "parameters": {
             "type": "object",
             "properties": {
                 "sort_by": {"type": "string", "description": "'size' (default) or 'count'"},
                 "limit": {"type": "integer", "description": "Max folders to show (default 10)"},
+                "extension": {"type": "string", "description": "Filter by file extension (e.g. 'pdf', 'md')"},
+                "order": {"type": "string", "description": "'desc' (default, largest/most first) or 'asc' (smallest/least first)"},
             },
         },
     },
@@ -160,6 +162,8 @@ class ToolRegistry:
         return self.toolbox.folder_stats(
             sort_by=params.get("sort_by", "size"),
             limit=params.get("limit", 10),
+            extension=params.get("extension"),
+            order=params.get("order", "desc"),
         )
 
     def _disk_usage(self, params: dict) -> str:

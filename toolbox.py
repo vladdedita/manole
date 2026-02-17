@@ -113,9 +113,10 @@ class ToolBox:
         matches = [f for f in files if pattern.lower() in f.name.lower()]
         return matches[:limit]
 
-    def folder_stats(self, sort_by: str = "size", limit: int = 10) -> str:
+    def folder_stats(self, sort_by: str = "size", limit: int = 10,
+                     extension: str | None = None, order: str = "desc") -> str:
         """Aggregate size and file count per folder."""
-        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        files = self._list_files(ext_filter=extension)
         if not files:
             return "No files found."
 
@@ -129,7 +130,8 @@ class ToolBox:
             folders[folder]["count"] += 1
 
         key = "size" if sort_by == "size" else "count"
-        ranked = sorted(folders.items(), key=lambda x: x[1][key], reverse=True)
+        descending = order != "asc"
+        ranked = sorted(folders.items(), key=lambda x: x[1][key], reverse=descending)
 
         total_size = sum(v["size"] for v in folders.values())
         total_count = sum(v["count"] for v in folders.values())

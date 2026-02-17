@@ -62,12 +62,14 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "folder_stats",
-        "description": "Show folder sizes and file counts",
+        "description": "Show folder sizes and file counts. Supports extension filter and ascending order for 'least' queries.",
         "parameters": {
             "type": "object",
             "properties": {
                 "sort_by": {"type": "string", "description": "'size' or 'count'"},
                 "limit": {"type": "integer", "description": "Max folders to show"},
+                "extension": {"type": "string", "description": "Filter by file extension, e.g. 'pdf'"},
+                "order": {"type": "string", "description": "'desc' (default) or 'asc' for least/smallest first"},
             },
         },
     },
@@ -228,7 +230,7 @@ class Agent:
         "aren't", "isn't", "don't", "doesn't", "didn't", "won't",
         "final", "question", "answer", "help", "please", "thanks",
         "test", "magic", "stuff", "thing", "things",
-        "top", "biggest", "largest", "smallest", "heaviest",
+        "top", "biggest", "largest", "smallest", "heaviest", "least", "fewest",
     })
 
     def _needs_followup(self, query: str, messages: list[dict]) -> dict | None:

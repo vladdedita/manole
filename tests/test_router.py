@@ -112,3 +112,33 @@ def test_largest_files_routes_to_list_files():
     name, params = route("show me the largest files")
     assert name == "list_files"
     assert params["sort_by"] == "size"
+
+
+def test_folder_with_most_pdfs():
+    name, params = route("what is the folder with the most pdf files?")
+    assert name == "folder_stats"
+    assert params["sort_by"] == "count"
+    assert params["extension"] == "pdf"
+    assert params.get("order", "desc") == "desc"
+
+
+def test_folder_with_least_pdfs():
+    name, params = route("what is the folder with the least pdf files?")
+    assert name == "folder_stats"
+    assert params["sort_by"] == "count"
+    assert params["extension"] == "pdf"
+    assert params["order"] == "asc"
+
+
+def test_folder_with_most_md_files():
+    name, params = route("what is the folder with the most md files?")
+    assert name == "folder_stats"
+    assert params["sort_by"] == "count"
+    assert params["extension"] == "md"
+
+
+def test_folder_with_fewest_files():
+    name, params = route("which folder has the fewest files?")
+    assert name == "folder_stats"
+    assert params["sort_by"] == "count"
+    assert params["order"] == "asc"

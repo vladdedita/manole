@@ -183,6 +183,44 @@ def test_folder_stats_empty_dir():
     assert "No files" in result or "0" in result
 
 
+def test_folder_stats_with_extension_filter():
+    tmp = tempfile.mkdtemp()
+    a = Path(tmp) / "a"
+    a.mkdir()
+    (a / "doc1.pdf").write_bytes(b"x" * 100)
+    (a / "doc2.pdf").write_bytes(b"x" * 100)
+    (a / "notes.txt").write_bytes(b"x" * 5000)
+
+    b = Path(tmp) / "b"
+    b.mkdir()
+    (b / "doc3.pdf").write_bytes(b"x" * 100)
+
+    tb = ToolBox(tmp)
+    result = tb.folder_stats(sort_by="count", extension="pdf")
+    lines = result.strip().split("\n")
+    # Folder "a" has 2 PDFs, "b" has 1 — "a" should come first
+    assert "a" in lines[1]
+    # The txt file should NOT be counted
+    assert "notes.txt" not in result
+
+
+def test_folder_stats_ascending_order():
+    tmp = tempfile.mkdtemp()
+    big = Path(tmp) / "big"
+    big.mkdir()
+    (big / "a.txt").write_bytes(b"x" * 10000)
+
+    small = Path(tmp) / "small"
+    small.mkdir()
+    (small / "b.txt").write_bytes(b"x" * 100)
+
+    tb = ToolBox(tmp)
+    result = tb.folder_stats(sort_by="size", order="asc")
+    lines = result.strip().split("\n")
+    # "small" should come first in ascending order
+    assert "small" in lines[1]
+
+
 def test_disk_usage_summary():
     tmp = tempfile.mkdtemp()
     (Path(tmp) / "a.pdf").write_bytes(b"x" * 5000)

@@ -37,20 +37,36 @@ def route(query: str, intent: str | None = None) -> tuple[str, dict]:
 
     # Metadata queries: folder sizes, disk usage, storage
     size_keywords = ["space", "biggest", "largest", "storage", "heavy", "disk usage"]
-    if intent == "metadata" or any(k in q for k in size_keywords):
+    count_keywords = ["most", "least", "fewest"]
+    is_metadata = intent == "metadata" or any(k in q for k in size_keywords)
+    is_count_query = any(k in q for k in count_keywords)
+
+    if is_metadata or is_count_query:
         if any(k in q for k in ["total", "usage", "overview", "summary"]):
             return "disk_usage", {}
-        # Distinguish file-level vs folder-level size queries
+
+        # Distinguish file-level vs folder-level queries
         file_words = ["file", "files", "document", "documents"]
         folder_words = ["folder", "folders", "directory", "directories"]
         mentions_files = any(w in q for w in file_words)
         mentions_folders = any(w in q for w in folder_words)
+        ext = _detect_extension(q)
+
+        # "folder with the most/least X files" → folder_stats with count + extension
+        if is_count_query and mentions_folders:
+            order = "asc" if any(k in q for k in ["least", "fewest"]) else "desc"
+            params = {"sort_by": "count", "order": order}
+            if ext:
+                params["extension"] = ext
+            return "folder_stats", params
+
+        # "biggest/largest files" → list_files sorted by size
         if mentions_files and not mentions_folders:
-            ext = _detect_extension(q)
             params = {"sort_by": "size"}
             if ext:
                 params["extension"] = ext
             return "list_files", params
+
         return "folder_stats", {"sort_by": "size"}
 
     # Unambiguous filesystem keywords only
