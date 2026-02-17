@@ -26,12 +26,12 @@ def _make_registry(search_response="No results."):
     return ToolRegistry(searcher, toolbox), searcher, tmp
 
 
-def test_tool_definitions_has_seven_tools():
+def test_tool_definitions_has_nine_tools():
+    """Updated: 7 original + 2 new = 9."""
     names = [t["name"] for t in TOOL_DEFINITIONS]
-    assert len(names) == 7
-    assert "semantic_search" in names
-    assert "count_files" in names
-    assert "respond" in names
+    assert len(names) == 9
+    assert "folder_stats" in names
+    assert "disk_usage" in names
 
 
 def test_semantic_search_delegates():
@@ -82,6 +82,24 @@ def test_directory_tree():
     registry, _, _ = _make_registry()
     result = registry.execute("directory_tree", {"max_depth": 1})
     assert "a.pdf" in result or "b.txt" in result
+
+
+def test_folder_stats_dispatch():
+    registry, _, _ = _make_registry()
+    result = registry.execute("folder_stats", {"sort_by": "size"})
+    assert "Folder" in result or "No files" in result
+
+
+def test_disk_usage_dispatch():
+    registry, _, _ = _make_registry()
+    result = registry.execute("disk_usage", {})
+    assert "Disk" in result or "No files" in result
+
+
+def test_list_files_with_sort_by():
+    registry, _, _ = _make_registry()
+    result = registry.execute("list_files", {"sort_by": "size"})
+    assert result  # should not crash
 
 
 def test_unknown_tool():

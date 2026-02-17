@@ -36,6 +36,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "extension": {"type": "string", "description": "Filter by extension or null"},
                 "limit": {"type": "integer", "description": "Max files to return (default 10)"},
+                "sort_by": {"type": "string", "description": "'date' (default), 'size', or 'name'"},
             },
         },
     },
@@ -72,6 +73,25 @@ TOOL_DEFINITIONS = [
         },
     },
     {
+        "name": "folder_stats",
+        "description": "Show folder sizes and file counts. Use for 'biggest folder', 'folder sizes', 'which folder has most files'.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sort_by": {"type": "string", "description": "'size' (default) or 'count'"},
+                "limit": {"type": "integer", "description": "Max folders to show (default 10)"},
+            },
+        },
+    },
+    {
+        "name": "disk_usage",
+        "description": "Show total disk usage summary with breakdown by file type. Use for 'how much space', 'storage', 'disk usage'.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
         "name": "respond",
         "description": (
             "Return a final answer to the user. "
@@ -102,6 +122,8 @@ class ToolRegistry:
             "file_metadata": self._file_metadata,
             "grep_files": self._grep_files,
             "directory_tree": self._directory_tree,
+            "folder_stats": self._folder_stats,
+            "disk_usage": self._disk_usage,
         }
 
     def execute(self, tool_name: str, params: dict) -> str:
@@ -122,6 +144,7 @@ class ToolRegistry:
         return self.toolbox.list_recent_files(
             ext_filter=params.get("extension"),
             limit=params.get("limit", 10),
+            sort_by=params.get("sort_by", "date"),
         )
 
     def _file_metadata(self, params: dict) -> str:
@@ -132,3 +155,12 @@ class ToolRegistry:
 
     def _directory_tree(self, params: dict) -> str:
         return self.toolbox.tree(max_depth=params.get("max_depth", 2))
+
+    def _folder_stats(self, params: dict) -> str:
+        return self.toolbox.folder_stats(
+            sort_by=params.get("sort_by", "size"),
+            limit=params.get("limit", 10),
+        )
+
+    def _disk_usage(self, params: dict) -> str:
+        return self.toolbox.disk_usage()
