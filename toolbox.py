@@ -97,3 +97,41 @@ class ToolBox:
         files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
         matches = [f for f in files if pattern.lower() in f.name.lower()]
         return matches[:limit]
+
+    def folder_stats(self, sort_by: str = "size", limit: int = 10) -> str:
+        """Aggregate size and file count per folder."""
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        if not files:
+            return "No files found."
+
+        folders: dict[str, dict] = {}
+        for f in files:
+            rel = f.relative_to(self.root)
+            folder = str(rel.parent) if str(rel.parent) != "." else "(root)"
+            if folder not in folders:
+                folders[folder] = {"size": 0, "count": 0}
+            folders[folder]["size"] += f.stat().st_size
+            folders[folder]["count"] += 1
+
+        key = "size" if sort_by == "size" else "count"
+        ranked = sorted(folders.items(), key=lambda x: x[1][key], reverse=True)
+
+        total_size = sum(v["size"] for v in folders.values())
+        total_count = sum(v["count"] for v in folders.values())
+
+        lines = [f"Folder sizes (sorted by {sort_by}):"]
+        for folder, stats in ranked[:limit]:
+            size_str = self._format_size(stats["size"])
+            lines.append(f"  {folder}/: {size_str}, {stats['count']} files")
+        lines.append(f"Total: {self._format_size(total_size)} across {total_count} files")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_size(size_bytes: int) -> str:
+        """Format bytes as human-readable string."""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        else:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"

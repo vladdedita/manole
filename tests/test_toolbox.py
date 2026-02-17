@@ -135,3 +135,49 @@ def test_grep_paths_limit():
         tb = ToolBox(tmp)
         paths = tb.grep_paths("doc", limit=3)
     assert len(paths) == 3
+
+
+def test_folder_stats_sorted_by_size():
+    tmp = tempfile.mkdtemp()
+    small = Path(tmp) / "small"
+    small.mkdir()
+    (small / "a.txt").write_bytes(b"x" * 100)
+
+    big = Path(tmp) / "big"
+    big.mkdir()
+    (big / "b.txt").write_bytes(b"x" * 10000)
+
+    (Path(tmp) / "root.txt").write_bytes(b"x" * 50)
+
+    tb = ToolBox(tmp)
+    result = tb.folder_stats(sort_by="size")
+    lines = result.strip().split("\n")
+
+    assert "big" in lines[1]
+    assert "small" in lines[2]
+    assert "(root)" in result
+    assert "Total:" in result
+
+
+def test_folder_stats_sorted_by_count():
+    tmp = tempfile.mkdtemp()
+    many = Path(tmp) / "many"
+    many.mkdir()
+    for i in range(5):
+        (many / f"f{i}.txt").write_bytes(b"x")
+
+    few = Path(tmp) / "few"
+    few.mkdir()
+    (few / "one.txt").write_bytes(b"x" * 10000)
+
+    tb = ToolBox(tmp)
+    result = tb.folder_stats(sort_by="count")
+    lines = result.strip().split("\n")
+    assert "many" in lines[1]
+
+
+def test_folder_stats_empty_dir():
+    tmp = tempfile.mkdtemp()
+    tb = ToolBox(tmp)
+    result = tb.folder_stats()
+    assert "No files" in result or "0" in result
