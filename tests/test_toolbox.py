@@ -207,3 +207,41 @@ def test_disk_usage_empty():
     tb = ToolBox(tmp)
     result = tb.disk_usage()
     assert "No files" in result or "0" in result
+
+
+def test_list_files_sort_by_size():
+    tmp = tempfile.mkdtemp()
+    (Path(tmp) / "small.txt").write_bytes(b"x" * 100)
+    (Path(tmp) / "big.txt").write_bytes(b"x" * 10000)
+    (Path(tmp) / "medium.txt").write_bytes(b"x" * 1000)
+
+    tb = ToolBox(tmp)
+    result = tb.list_recent_files(sort_by="size")
+    lines = [l.strip() for l in result.strip().split("\n") if l.strip().startswith("-")]
+
+    assert "big.txt" in lines[0]
+    assert "small.txt" in lines[-1]
+
+
+def test_list_files_sort_by_name():
+    tmp = tempfile.mkdtemp()
+    (Path(tmp) / "c.txt").write_bytes(b"x")
+    (Path(tmp) / "a.txt").write_bytes(b"x")
+    (Path(tmp) / "b.txt").write_bytes(b"x")
+
+    tb = ToolBox(tmp)
+    result = tb.list_recent_files(sort_by="name")
+    lines = [l.strip() for l in result.strip().split("\n") if l.strip().startswith("-")]
+
+    assert "a.txt" in lines[0]
+    assert "c.txt" in lines[-1]
+
+
+def test_list_files_sort_by_size_shows_size():
+    """When sorted by size, output should include file sizes."""
+    tmp = tempfile.mkdtemp()
+    (Path(tmp) / "a.txt").write_bytes(b"x" * 5000)
+
+    tb = ToolBox(tmp)
+    result = tb.list_recent_files(sort_by="size")
+    assert "KB" in result or "MB" in result or "B" in result

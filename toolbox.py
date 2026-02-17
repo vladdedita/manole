@@ -36,17 +36,32 @@ class ToolBox:
         label = f".{ext_filter} " if ext_filter else ""
         return f"Found {len(files)} {label}files."
 
-    def list_recent_files(self, ext_filter: str | None = None, time_filter: str | None = None, limit: int = 10) -> str:
+    def list_recent_files(self, ext_filter: str | None = None, time_filter: str | None = None,
+                           limit: int = 10, sort_by: str = "date") -> str:
         files = self._list_files(ext_filter, time_filter)
-        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
         if not files:
             return "No matching files found."
+
+        if sort_by == "size":
+            files.sort(key=lambda f: f.stat().st_size, reverse=True)
+        elif sort_by == "name":
+            files.sort(key=lambda f: f.name.lower())
+        else:
+            files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+
         lines = []
         for f in files[:limit]:
-            mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
             rel = f.relative_to(self.root)
-            lines.append(f"  - {rel} (modified: {mtime})")
-        return "Recent files:\n" + "\n".join(lines)
+            stat = f.stat()
+            if sort_by == "size":
+                size_str = self._format_size(stat.st_size)
+                lines.append(f"  - {rel} ({size_str})")
+            else:
+                mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+                lines.append(f"  - {rel} (modified: {mtime})")
+
+        header = "Files" if sort_by == "name" else f"Files (sorted by {sort_by}):"
+        return header + "\n" + "\n".join(lines)
 
     def get_file_metadata(self, name_hint: str | None = None) -> str:
         files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
