@@ -126,6 +126,34 @@ class ToolBox:
         lines.append(f"Total: {self._format_size(total_size)} across {total_count} files")
         return "\n".join(lines)
 
+    def disk_usage(self) -> str:
+        """Total disk usage summary with breakdown by extension."""
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        if not files:
+            return "No files found."
+
+        total_size = 0
+        by_ext: dict[str, dict] = {}
+        for f in files:
+            size = f.stat().st_size
+            total_size += size
+            ext = f.suffix.lower() or "(no extension)"
+            if ext not in by_ext:
+                by_ext[ext] = {"size": 0, "count": 0}
+            by_ext[ext]["size"] += size
+            by_ext[ext]["count"] += 1
+
+        avg_size = total_size / len(files) if files else 0
+        ranked = sorted(by_ext.items(), key=lambda x: x[1]["size"], reverse=True)
+
+        lines = ["Disk usage summary:"]
+        lines.append(f"  Total: {self._format_size(total_size)} across {len(files)} files")
+        lines.append(f"  Average file size: {self._format_size(int(avg_size))}")
+        lines.append("  By type:")
+        for ext, stats in ranked[:10]:
+            lines.append(f"    {ext}: {self._format_size(stats['size'])} ({stats['count']} files)")
+        return "\n".join(lines)
+
     @staticmethod
     def _format_size(size_bytes: int) -> str:
         """Format bytes as human-readable string."""

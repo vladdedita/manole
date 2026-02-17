@@ -181,3 +181,29 @@ def test_folder_stats_empty_dir():
     tb = ToolBox(tmp)
     result = tb.folder_stats()
     assert "No files" in result or "0" in result
+
+
+def test_disk_usage_summary():
+    tmp = tempfile.mkdtemp()
+    (Path(tmp) / "a.pdf").write_bytes(b"x" * 5000)
+    (Path(tmp) / "b.pdf").write_bytes(b"x" * 3000)
+    (Path(tmp) / "c.txt").write_bytes(b"x" * 1000)
+    sub = Path(tmp) / "sub"
+    sub.mkdir()
+    (sub / "d.txt").write_bytes(b"x" * 2000)
+
+    tb = ToolBox(tmp)
+    result = tb.disk_usage()
+
+    assert "4 files" in result or "4" in result
+    assert ".pdf" in result
+    assert ".txt" in result
+    assert "Average" in result
+    assert "Total" in result
+
+
+def test_disk_usage_empty():
+    tmp = tempfile.mkdtemp()
+    tb = ToolBox(tmp)
+    result = tb.disk_usage()
+    assert "No files" in result or "0" in result
