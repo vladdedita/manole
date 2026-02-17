@@ -351,6 +351,8 @@ class Server:
         dir_id = params.get("directoryId")
         if not dir_id or dir_id not in self.directories:
             return {"id": req_id, "type": "error", "data": {"message": f"Unknown directory: {dir_id}"}}
+        # Clear cached file graph so it's recomputed after reindex
+        self.directories[dir_id].pop("file_graph", None)
         stored_path = self.directories[dir_id]["path"]
         return self.handle_init(req_id, {"dataDir": stored_path})
 
