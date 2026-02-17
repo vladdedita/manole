@@ -69,3 +69,30 @@ body {
   background: var(--color-accent-muted);
   color: var(--color-text-primary);
 }
+
+/* React Flow theme overrides — match forge & parchment palette */
+.react-flow__node {
+  cursor: pointer;
+}
+
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+.react-flow__controls {
+  gap: 2px;
+}
+
+.react-flow__controls button {
+  width: 24px;
+  height: 24px;
+}
+
+.react-flow__controls button svg {
+  max-width: 12px;
+  max-height: 12px;
+}
+
+.react-flow__minimap {
+  border-radius: 8px;
+}
