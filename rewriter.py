@@ -10,7 +10,11 @@ REWRITER_SYSTEM = (
     '- "search_query": expanded query optimized for vector search '
     "(add synonyms, related terms, full forms of abbreviations)\n"
     '- "resolved_query": rewrite the user\'s question with pronouns and references '
-    "resolved. ALWAYS frame it as looking in the user's files — never answer from general knowledge.\n\n"
+    "resolved. ALWAYS frame it as looking in the user's files — never answer from general knowledge.\n"
+    "  For metadata queries: preserve whether the user asks about FILES or FOLDERS. "
+    "If they ask about sizes or ranking, say 'sorted by size' explicitly. "
+    "Example: 'top files by size' → 'List files sorted by file size'. "
+    "'biggest folders' → 'Show folders sorted by size'.\n\n"
     "Examples:\n\n"
     'Question: "any invoices?"\n'
     '{"intent": "list", "search_query": "invoice receipt payment billing", '

@@ -121,3 +121,9 @@ def test_metadata_is_valid_intent():
 
 def test_rewriter_system_mentions_metadata():
     assert "metadata" in REWRITER_SYSTEM
+
+
+def test_rewriter_system_has_file_folder_distinction_instruction():
+    """Prompt instructs the rewriter to preserve files vs folders distinction."""
+    assert "FILES or FOLDERS" in REWRITER_SYSTEM
+    assert "sorted by size" in REWRITER_SYSTEM
