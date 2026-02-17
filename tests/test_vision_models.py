@@ -28,9 +28,10 @@ def test_vision_model_lazy_loads_on_first_access():
     mock_llama = MagicMock()
     mock_handler = MagicMock()
     with patch("llama_cpp.Llama", return_value=mock_llama) as MockLlama, \
-         patch("llama_cpp.llama_chat_format.MoondreamChatHandler", return_value=mock_handler), \
+         patch("llama_cpp.llama_chat_format.MoondreamChatHandler", return_value=mock_handler) as MockHandler, \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path"):
         result = mgr.vision_model
+        MockHandler.assert_called_once_with(clip_model_path="/fake/mmproj.gguf")
         MockLlama.assert_called_once()
         # Verify chat_handler was passed to Llama
         call_kwargs = MockLlama.call_args.kwargs
@@ -190,8 +191,9 @@ def test_vision_model_calls_ensure_model_for_both_files():
 
 # --- AC: Fail-fast on incompatible mmproj ---
 
-def test_vision_model_raises_runtime_error_on_handler_failure():
-    """Given MoondreamChatHandler raises ValueError on incompatible mmproj,
+@pytest.mark.parametrize("exc_type", [ValueError, TypeError, OSError])
+def test_vision_model_raises_runtime_error_on_handler_failure(exc_type):
+    """Given MoondreamChatHandler raises an exception on incompatible mmproj,
     when vision_model is accessed, then RuntimeError is raised with actionable message."""
     from models import ModelManager
     mgr = ModelManager.__new__(ModelManager)
@@ -201,7 +203,7 @@ def test_vision_model_raises_runtime_error_on_handler_failure():
     mgr._vision_model = None
 
     with patch("llama_cpp.llama_chat_format.MoondreamChatHandler",
-               side_effect=ValueError("Invalid clip model")), \
+               side_effect=exc_type("Invalid clip model")), \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path"):
         with pytest.raises(RuntimeError, match="incompatible with MoondreamChatHandler"):
             _ = mgr.vision_model
