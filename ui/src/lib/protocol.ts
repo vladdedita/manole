@@ -4,7 +4,7 @@ export interface Request {
   params: Record<string, unknown>;
 }
 
-export type ResponseType = "result" | "token" | "agent_step" | "error" | "status" | "progress" | "log";
+export type ResponseType = "result" | "token" | "agent_step" | "error" | "status" | "progress" | "log" | "directory_update" | "file_graph";
 
 export interface Response {
   id: number | null;
@@ -41,4 +41,44 @@ export interface ResultData {
 
 export interface ErrorData {
   message: string;
+}
+
+export interface DirectoryStats {
+  fileCount: number;
+  totalSize: number;
+  types: Record<string, number>;
+  sizeByType: Record<string, number>;
+  largestFiles: { name: string; size: number }[];
+  avgFileSize: number;
+  dirs: { count: number; maxDepth: number };
+}
+
+export interface DirectoryUpdateData {
+  directoryId: string;
+  state: "indexing" | "ready" | "error";
+  stats?: DirectoryStats;
+  summary?: string;
+  error?: string;
+}
+
+export interface FileNode {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  dir: string;
+  passageCount: number;
+}
+
+export interface FileEdge {
+  source: string;
+  target: string;
+  type: "similarity" | "reference" | "structure";
+  weight: number;
+  label?: string;
+}
+
+export interface FileGraphData {
+  nodes: FileNode[];
+  edges: FileEdge[];
 }
