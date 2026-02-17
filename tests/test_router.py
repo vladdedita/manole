@@ -67,3 +67,29 @@ def test_intent_ignored():
     """Intent param is accepted but no longer drives routing."""
     name, _ = route("how many pdf files do I have?", intent="count")
     assert name == "semantic_search"
+
+
+def test_metadata_intent_folder_query():
+    name, params = route("what folders are biggest?", intent="metadata")
+    assert name == "folder_stats"
+    assert params["sort_by"] == "size"
+
+
+def test_space_keyword_routes_to_folder_stats():
+    name, params = route("what takes up the most space?")
+    assert name == "folder_stats"
+
+
+def test_largest_folder_query():
+    name, params = route("which folder is the largest?")
+    assert name == "folder_stats"
+
+
+def test_disk_usage_query():
+    name, params = route("total disk usage overview")
+    assert name == "disk_usage"
+
+
+def test_storage_summary_query():
+    name, params = route("give me a storage summary")
+    assert name == "disk_usage"

@@ -35,6 +35,13 @@ def _extract_name_hint(query: str) -> str | None:
 def route(query: str, intent: str | None = None) -> tuple[str, dict]:
     q = query.lower()
 
+    # Metadata queries: folder sizes, disk usage, storage
+    size_keywords = ["space", "biggest", "largest", "storage", "heavy", "disk usage"]
+    if intent == "metadata" or any(k in q for k in size_keywords):
+        if any(k in q for k in ["total", "usage", "overview", "summary"]):
+            return "disk_usage", {}
+        return "folder_stats", {"sort_by": "size"}
+
     # Unambiguous filesystem keywords only
     if any(k in q for k in ["folder", "tree", "directory", "structure"]):
         return "directory_tree", {"max_depth": 2}
