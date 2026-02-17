@@ -370,3 +370,38 @@ def test_followup_stops_after_both_tools_tried():
     tool_names = [name for name, _ in tools.calls]
     assert tool_names.count("grep_files") == 1
     assert tool_names.count("semantic_search") == 1
+
+
+def test_known_tools_includes_metadata():
+    assert "folder_stats" in Agent._KNOWN_TOOLS
+    assert "disk_usage" in Agent._KNOWN_TOOLS
+
+
+def test_model_calls_folder_stats():
+    model = _make_model([
+        '<|tool_call_start|>folder_stats(sort_by="size")<|tool_call_end|>',
+        "The biggest folder is Finance at 12 MB.",
+    ])
+    tools = FakeToolRegistry({"folder_stats": "Disk space take up:\n  finance/: 12.0 MB, 23 files"})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("what folders take up the most space?")
+
+    assert tools.calls[0] == ("folder_stats", {"sort_by": "size"})
+    assert not router.called
+
+
+def test_model_calls_disk_usage():
+    model = _make_model([
+        '<|tool_call_start|>disk_usage()<|tool_call_end|>',
+        "Total storage is 16.7 MB.",
+    ])
+    tools = FakeToolRegistry({"disk_usage": "Disk space currently using:\n  Total: 16.7 MB"})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer = agent.run("how much space am I using?")
+
+    assert tools.calls[0] == ("disk_usage", {})
+    assert not router.called

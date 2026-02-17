@@ -30,6 +30,7 @@ TOOL_SCHEMAS = [
             "properties": {
                 "extension": {"type": "string", "description": "File extension filter"},
                 "limit": {"type": "integer", "description": "Max files to return"},
+                "sort_by": {"type": "string", "description": "'date', 'size', or 'name'"},
             },
         },
     },
@@ -59,6 +60,25 @@ TOOL_SCHEMAS = [
             "properties": {"max_depth": {"type": "integer", "description": "Max depth to show"}},
         },
     },
+    {
+        "name": "folder_stats",
+        "description": "Show folder sizes and file counts",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "sort_by": {"type": "string", "description": "'size' or 'count'"},
+                "limit": {"type": "integer", "description": "Max folders to show"},
+            },
+        },
+    },
+    {
+        "name": "disk_usage",
+        "description": "Show total disk usage summary",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 SYSTEM_PROMPT = (
@@ -80,7 +100,7 @@ class Agent:
         self.rewriter = rewriter
         self.debug = debug
 
-    def run(self, query: str, history: list[dict] = None, on_token=None) -> str:
+    def run(self, query: str, history: list[dict] = None, on_token=None, on_step=None) -> str:
         """Run the agent loop for a user query."""
         # Rewrite query for better intent detection and search
         rewrite = None
@@ -127,6 +147,8 @@ class Agent:
                         params["query"] = search_query
                     if self.debug:
                         print(f"  [AGENT] Fallback router: {tool_name}({params})")
+                    if on_step:
+                        on_step(step, tool_name, params)
                     result = self.tools.execute(tool_name, params)
                     messages.append({"role": "assistant", "content": raw})
                     messages.append({
@@ -141,6 +163,8 @@ class Agent:
                         tool_params = followup["params"]
                         if self.debug:
                             print(f"  [AGENT] Followup: {tool_name}({tool_params})")
+                        if on_step:
+                            on_step(step, tool_name, tool_params)
                         result = self.tools.execute(tool_name, tool_params)
                         if self.debug:
                             print(f"  [AGENT] Followup result: {result[:200]}")
@@ -163,6 +187,8 @@ class Agent:
             if tool_name == "respond":
                 return tool_params.get("answer", raw)
 
+            if on_step:
+                on_step(step, tool_name, tool_params)
             result = self.tools.execute(tool_name, tool_params)
 
             if self.debug:
@@ -186,7 +212,7 @@ class Agent:
 
     _KNOWN_TOOLS = frozenset({
         "semantic_search", "count_files", "list_files", "grep_files",
-        "file_metadata", "directory_tree", "respond",
+        "file_metadata", "directory_tree", "folder_stats", "disk_usage", "respond",
     })
 
     # Words too generic to trigger a followup grep/search
