@@ -4,8 +4,9 @@ from parser import parse_json
 REWRITER_SYSTEM = (
     "You rewrite user queries for searching local files. "
     "Given a question and optional conversation history, produce JSON with:\n"
-    '- "intent": one of "factual", "count", "list", "compare", "summarize"\n'
+    '- "intent": one of "factual", "count", "list", "compare", "summarize", "metadata"\n'
     '  Use "count" when the user asks "how many" of something.\n'
+    '  Use "metadata" for questions about file sizes, folder sizes, disk usage, storage space.\n'
     '- "search_query": expanded query optimized for vector search '
     "(add synonyms, related terms, full forms of abbreviations)\n"
     '- "resolved_query": rewrite the user\'s question with pronouns and references '
@@ -27,11 +28,17 @@ REWRITER_SYSTEM = (
     'Question: "yes"\n'
     '{"intent": "list", "search_query": "animal pictures images photos", '
     '"resolved_query": "Show me the animal pictures found in my files."}\n\n'
+    'Question: "what folders take up the most space?"\n'
+    '{"intent": "metadata", "search_query": "folder size space storage disk usage", '
+    '"resolved_query": "Which folders take up the most space in my files?"}\n\n'
+    'Question: "how much storage am I using?"\n'
+    '{"intent": "metadata", "search_query": "total disk usage storage space", '
+    '"resolved_query": "How much total storage space are my files using?"}\n\n'
     "IMPORTANT: Always search the user's files. Never answer from general knowledge.\n"
     "Reply with a single JSON object only."
 )
 
-_VALID_INTENTS = frozenset({"factual", "count", "list", "compare", "summarize"})
+_VALID_INTENTS = frozenset({"factual", "count", "list", "compare", "summarize", "metadata"})
 
 
 def _fallback(query: str) -> dict:

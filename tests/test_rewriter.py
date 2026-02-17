@@ -113,3 +113,11 @@ def test_rewriter_uses_max_tokens_256():
 
     call_args = model.generate.call_args
     assert call_args.kwargs.get("max_tokens") == 256 or (len(call_args[0]) > 1 and call_args[0][1] == 256)
+
+
+def test_metadata_is_valid_intent():
+    assert "metadata" in _VALID_INTENTS
+
+
+def test_rewriter_system_mentions_metadata():
+    assert "metadata" in REWRITER_SYSTEM
