@@ -40,6 +40,17 @@ def route(query: str, intent: str | None = None) -> tuple[str, dict]:
     if intent == "metadata" or any(k in q for k in size_keywords):
         if any(k in q for k in ["total", "usage", "overview", "summary"]):
             return "disk_usage", {}
+        # Distinguish file-level vs folder-level size queries
+        file_words = ["file", "files", "document", "documents"]
+        folder_words = ["folder", "folders", "directory", "directories"]
+        mentions_files = any(w in q for w in file_words)
+        mentions_folders = any(w in q for w in folder_words)
+        if mentions_files and not mentions_folders:
+            ext = _detect_extension(q)
+            params = {"sort_by": "size"}
+            if ext:
+                params["extension"] = ext
+            return "list_files", params
         return "folder_stats", {"sort_by": "size"}
 
     # Unambiguous filesystem keywords only

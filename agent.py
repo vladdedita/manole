@@ -24,7 +24,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "list_files",
-        "description": "List recent files, optionally filtered by extension",
+        "description": "List files sorted by date, size, or name. Use for 'biggest files', 'largest files', 'recent files'.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -228,6 +228,7 @@ class Agent:
         "aren't", "isn't", "don't", "doesn't", "didn't", "won't",
         "final", "question", "answer", "help", "please", "thanks",
         "test", "magic", "stuff", "thing", "things",
+        "top", "biggest", "largest", "smallest", "heaviest",
     })
 
     def _needs_followup(self, query: str, messages: list[dict]) -> dict | None:

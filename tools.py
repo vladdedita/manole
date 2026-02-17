@@ -30,7 +30,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "list_files",
-        "description": "List files sorted by modification date. Use for 'what files', 'recent files', 'show me files' questions.",
+        "description": "List files sorted by date, size, or name. Use for 'what files', 'recent files', 'biggest files', 'largest files' questions.",
         "parameters": {
             "type": "object",
             "properties": {

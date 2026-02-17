@@ -93,3 +93,22 @@ def test_disk_usage_query():
 def test_storage_summary_query():
     name, params = route("give me a storage summary")
     assert name == "disk_usage"
+
+
+def test_top_files_by_size_routes_to_list_files():
+    """'top 3 files by size' should use list_files, not folder_stats."""
+    name, params = route("what are the top 3 files by size?", intent="metadata")
+    assert name == "list_files"
+    assert params["sort_by"] == "size"
+
+
+def test_biggest_files_routes_to_list_files():
+    name, params = route("what are the biggest files?")
+    assert name == "list_files"
+    assert params["sort_by"] == "size"
+
+
+def test_largest_files_routes_to_list_files():
+    name, params = route("show me the largest files")
+    assert name == "list_files"
+    assert params["sort_by"] == "size"
