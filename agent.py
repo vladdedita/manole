@@ -245,6 +245,7 @@ class Agent:
         "final", "question", "answer", "help", "please", "thanks",
         "test", "magic", "stuff", "thing", "things",
         "top", "biggest", "largest", "smallest", "heaviest", "least", "fewest",
+        "image", "images", "picture", "pictures", "photo", "photos", "drawing", "drawings",
     })
 
     def _needs_followup(self, query: str, messages: list[dict]) -> dict | None:
@@ -285,11 +286,11 @@ class Agent:
         if not missing:
             return None
 
-        if "grep_files" not in tools_used:
-            return {"name": "grep_files", "params": {"pattern": missing[0]}}
-
         if "semantic_search" not in tools_used:
             return {"name": "semantic_search", "params": {"query": " ".join(missing)}}
+
+        if "grep_files" not in tools_used:
+            return {"name": "grep_files", "params": {"pattern": missing[0]}}
 
         return None
 

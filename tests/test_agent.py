@@ -239,8 +239,8 @@ def test_bare_function_call():
     assert not router.called
 
 
-def test_followup_grep_when_keyword_missing():
-    """Python injects grep_files when model stops but query keyword not in results."""
+def test_followup_semantic_search_when_keyword_missing():
+    """Followup injects semantic_search first when model stops but query keyword not in results."""
     model = _make_model([
         '[count_files(extension="pdf")]',
         "There are 25 PDF files.",
@@ -248,7 +248,7 @@ def test_followup_grep_when_keyword_missing():
     ])
     tools = FakeToolRegistry({
         "count_files": "Found 25 .pdf files.",
-        "grep_files": "macbook_ssd.pdf",
+        "semantic_search": "macbook_ssd.pdf — MacBook SSD replacement guide",
     })
     router = FakeRouter()
 
@@ -257,7 +257,7 @@ def test_followup_grep_when_keyword_missing():
 
     tool_calls = [(name, params) for name, params in tools.calls]
     assert ("count_files", {"extension": "pdf"}) in tool_calls
-    assert any(name == "grep_files" and "macbook" in params.get("pattern", "") for name, params in tool_calls)
+    assert any(name == "semantic_search" and "macbook" in params.get("query", "") for name, params in tool_calls)
     assert not router.called
 
 
@@ -413,3 +413,31 @@ def test_model_calls_disk_usage():
 
     assert tools.calls[0] == ("disk_usage", {})
     assert not router.called
+
+
+def test_followup_prefers_semantic_search_over_grep():
+    """When neither tool has been used, followup returns semantic_search first."""
+    agent = Agent(_make_model(["ignored"]), FakeToolRegistry(), FakeRouter())
+    messages = [
+        {"role": "tool", "content": json.dumps({"tool": "count_files", "result": "5 files"})},
+    ]
+    result = agent._needs_followup("find budget report", messages)
+    assert result is not None
+    assert result["name"] == "semantic_search"
+
+
+def test_followup_falls_back_to_grep_after_semantic_search():
+    """When semantic_search already used, followup falls back to grep_files."""
+    agent = Agent(_make_model(["ignored"]), FakeToolRegistry(), FakeRouter())
+    messages = [
+        {"role": "tool", "content": json.dumps({"tool": "semantic_search", "result": "no match"})},
+    ]
+    result = agent._needs_followup("find budget report", messages)
+    assert result is not None
+    assert result["name"] == "grep_files"
+
+
+def test_image_stopwords_in_followup_stopwords():
+    """Image-related generic terms should be in _FOLLOWUP_STOPWORDS."""
+    expected = {"image", "images", "picture", "pictures", "photo", "photos", "drawing", "drawings"}
+    assert expected.issubset(Agent._FOLLOWUP_STOPWORDS)

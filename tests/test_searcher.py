@@ -49,17 +49,17 @@ def test_search_and_extract_returns_formatted_facts():
     model = _make_model([json.dumps({"relevant": True, "facts": ["Total Budget: $450,000"]})])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("budget")
-    assert "From file0.txt:" in output
-    assert "$450,000" in output
+    text, sources = searcher.search_and_extract("budget")
+    assert "From file0.txt:" in text
+    assert "$450,000" in text
 
 
 def test_search_no_results():
     model = _make_model([])
     leann = FakeLeann([])
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("quantum physics")
-    assert "No matching content" in output
+    text, sources = searcher.search_and_extract("quantum physics")
+    assert "No matching content" in text
 
 
 def test_irrelevant_chunks_filtered():
@@ -70,9 +70,9 @@ def test_irrelevant_chunks_filtered():
     ])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("invoices")
-    assert "Invoice #123" in output
-    assert "weather" not in output.lower()
+    text, sources = searcher.search_and_extract("invoices")
+    assert "Invoice #123" in text
+    assert "weather" not in text.lower()
 
 
 def test_all_irrelevant_returns_message():
@@ -80,8 +80,8 @@ def test_all_irrelevant_returns_message():
     model = _make_model([json.dumps({"relevant": False, "facts": []})])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("quantum")
-    assert "none were relevant" in output.lower()
+    text, sources = searcher.search_and_extract("quantum")
+    assert "none were relevant" in text.lower()
 
 
 def test_score_prefilter():
@@ -93,7 +93,7 @@ def test_score_prefilter():
     ])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("test")
+    text, sources = searcher.search_and_extract("test")
     assert model.generate.call_count == 2
 
 
@@ -102,8 +102,8 @@ def test_parse_failure_defaults_to_irrelevant():
     model = _make_model(["not valid json at all"])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("test")
-    assert "none were relevant" in output.lower()
+    text, sources = searcher.search_and_extract("test")
+    assert "none were relevant" in text.lower()
 
 
 def test_file_name_used_as_source():
@@ -114,8 +114,8 @@ def test_file_name_used_as_source():
     model = _make_model([json.dumps({"relevant": True, "facts": ["Budget: $100k"]})])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("budget")
-    assert "budget_q1_2026.txt" in output
+    text, sources = searcher.search_and_extract("budget")
+    assert "budget_q1_2026.txt" in text
 
 
 def test_fallback_source_from_id():
@@ -123,8 +123,8 @@ def test_fallback_source_from_id():
     model = _make_model([json.dumps({"relevant": True, "facts": ["some fact"]})])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("test")
-    assert "99" in output
+    text, sources = searcher.search_and_extract("test")
+    assert "99" in text
 
 
 def test_top_k_passed_to_leann():
@@ -148,11 +148,11 @@ def test_multiple_sources_grouped():
     ])
     leann = FakeLeann(results)
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("test")
-    assert "From a.pdf:" in output
-    assert "From b.pdf:" in output
-    assert "fact A" in output
-    assert "fact B" in output
+    text, sources = searcher.search_and_extract("test")
+    assert "From a.pdf:" in text
+    assert "From b.pdf:" in text
+    assert "fact A" in text
+    assert "fact B" in text
 
 
 def test_extract_keywords_basic():
@@ -218,10 +218,10 @@ def test_filename_fallback_when_chunks_irrelevant():
     toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
 
     searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
-    output = searcher.search_and_extract("macbook invoice")
+    text, sources = searcher.search_and_extract("macbook invoice")
 
-    assert "Invoice #999" in output
-    assert "macbook_ssd.pdf" in output
+    assert "Invoice #999" in text
+    assert "macbook_ssd.pdf" in text
     assert len(file_reader.read_calls) == 1
 
 
@@ -236,9 +236,9 @@ def test_filename_fallback_no_matching_files():
     toolbox = FakeToolBox(paths=[])
 
     searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
-    output = searcher.search_and_extract("macbook invoice")
+    text, sources = searcher.search_and_extract("macbook invoice")
 
-    assert "none were relevant" in output.lower()
+    assert "none were relevant" in text.lower()
 
 
 def test_filename_fallback_not_triggered_when_chunks_relevant():
@@ -252,9 +252,9 @@ def test_filename_fallback_not_triggered_when_chunks_relevant():
     toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
 
     searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
-    output = searcher.search_and_extract("macbook invoice")
+    text, sources = searcher.search_and_extract("macbook invoice")
 
-    assert "Invoice #123" in output
+    assert "Invoice #123" in text
     assert len(file_reader.read_calls) == 0
 
 
@@ -267,9 +267,9 @@ def test_filename_fallback_without_file_reader():
     leann = FakeLeann(results)
 
     searcher = Searcher(leann, model)
-    output = searcher.search_and_extract("macbook invoice")
+    text, sources = searcher.search_and_extract("macbook invoice")
 
-    assert "none were relevant" in output.lower()
+    assert "none were relevant" in text.lower()
 
 
 def test_filename_fallback_includes_facts_even_when_model_says_irrelevant():
@@ -285,10 +285,10 @@ def test_filename_fallback_includes_facts_even_when_model_says_irrelevant():
     toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
 
     searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
-    output = searcher.search_and_extract("macbook invoice")
+    text, sources = searcher.search_and_extract("macbook invoice")
 
-    assert "Factura #999" in output
-    assert "macbook_ssd.pdf" in output
+    assert "Factura #999" in text
+    assert "macbook_ssd.pdf" in text
 
 
 def test_filename_fallback_surfaces_file_when_no_facts_extracted():
@@ -304,10 +304,10 @@ def test_filename_fallback_surfaces_file_when_no_facts_extracted():
     toolbox = FakeToolBox(paths=[Path("/data/macbook_ssd.pdf")])
 
     searcher = Searcher(leann, model, file_reader=file_reader, toolbox=toolbox)
-    output = searcher.search_and_extract("macbook invoice")
+    text, sources = searcher.search_and_extract("macbook invoice")
 
-    assert "macbook_ssd.pdf" in output
-    assert "File found" in output
+    assert "macbook_ssd.pdf" in text
+    assert "File found" in text
 
 
 def test_filename_fallback_caps_at_3_files():
@@ -329,3 +329,29 @@ def test_filename_fallback_caps_at_3_files():
     output = searcher.search_and_extract("macbook")
 
     assert len(file_reader.read_calls) == 3
+
+
+def test_search_and_extract_returns_sources():
+    """search_and_extract returns (text, sources) tuple with source filenames."""
+    results = _make_results("Budget doc", sources=["budget.pdf"])
+    model = _make_model([json.dumps({"relevant": True, "facts": ["Budget: $450k"]})])
+    leann = FakeLeann(results)
+    searcher = Searcher(leann, model)
+
+    text, sources = searcher.search_and_extract("budget")
+
+    assert isinstance(sources, list)
+    assert "budget.pdf" in sources
+    assert "budget.pdf" in text
+
+
+def test_search_and_extract_no_results_returns_empty_sources():
+    """When no chunks match, sources list is empty."""
+    leann = FakeLeann([])
+    model = _make_model([])
+    searcher = Searcher(leann, model)
+
+    text, sources = searcher.search_and_extract("anything")
+
+    assert sources == []
+    assert "No matching" in text
