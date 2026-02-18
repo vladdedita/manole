@@ -184,6 +184,7 @@ class Server:
             self._log("Loading model...")
             self.model = ModelManager()
             self.model.load()
+            self.model.load_vision()
             self._log("Model loaded.")
 
         send(None, "status", {"state": "indexing"})

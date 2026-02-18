@@ -634,6 +634,54 @@ def _make_init_context(tmp_path, mock_searcher_inst, mock_captioner_cls=None,
     return stack
 
 
+class TestEagerVisionLoading:
+    """Test that server eagerly loads vision model during init."""
+
+    def test_handle_init_calls_load_vision_after_load(self, tmp_path):
+        """Given handle_init is called, load_vision() is called after load()
+        during the loading_model phase."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        try:
+            srv = Server()
+
+            mock_model = MagicMock()
+            mock_model.generate.return_value = "Summary"
+
+            # Track call order
+            call_order = []
+            mock_model.load.side_effect = lambda: call_order.append("load")
+            mock_model.load_vision.side_effect = lambda: call_order.append("load_vision")
+
+            (tmp_path / "doc.txt").write_text("hello")
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.return_value = "facts"
+
+            mock_captioner = MagicMock()
+            mock_captioner._find_images.return_value = []
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls), \
+                 patch("models.ModelManager", return_value=mock_model):
+                result = srv.handle_init(1, {"dataDir": str(tmp_path)})
+
+            assert result["data"]["status"] == "ready"
+            mock_model.load.assert_called_once()
+            mock_model.load_vision.assert_called_once()
+            assert call_order == ["load", "load_vision"]
+
+        finally:
+            srv_mod.send = original_send
+
+
 class TestForegroundCaptioning:
     """Acceptance: handle_init runs summary + captioning inline (no background thread)."""
 
