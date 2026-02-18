@@ -98,6 +98,7 @@ def test_caption_injected_with_correct_metadata(MockBuilder):
     metadata = add_text_call.kwargs.get("metadata", {})
     assert metadata.get("file_type") == "image"
     assert metadata.get("file_name") == "sunset.png"
+    assert "file_path" in metadata, "file_path required for graph.py build_nodes()"
 
 
 # AC-4: Captioning doesn't block (tested structurally — ImageCaptioner.run is called in a thread)

@@ -152,6 +152,7 @@ class ImageCaptioner:
             builder.add_text(
                 text=f"Photo description: {caption}",
                 metadata={
+                    "file_path": str(image_path),
                     "file_name": image_path.name,
                     "file_type": "image",
                     "path": str(image_path),
