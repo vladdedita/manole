@@ -2,6 +2,7 @@
 import base64
 import io
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from collections.abc import Callable
 
@@ -56,27 +57,40 @@ class ImageCaptioner:
                 print(f"[CAPTIONER] {total} uncached images to caption")
 
             done = 0
-            for img in uncached:
-                try:
-                    if self.debug:
-                        print(f"[CAPTIONER] Captioning {img.name}...")
-                    data_uri = self._load_image_as_data_uri(img)
-                    caption = self.model.caption_image(data_uri)
-                    self.cache.put(str(img), caption)
-                    new_captions.append((img, caption))
-                    done += 1
-                    if self.debug:
-                        print(f"[CAPTIONER] {done}/{total} done: {img.name} -> {caption[:60]}")
-                    self.send_fn(None, "captioning_progress", {
-                        "directoryId": self.dir_id,
-                        "done": done,
-                        "total": total,
-                    })
-                except Exception as exc:
-                    log.warning(f"Error captioning {img.name}: {exc}")
-                    if self.debug:
-                        print(f"[CAPTIONER] Error captioning {img.name}: {exc}")
-                    continue
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                # Submit first image load
+                next_future = executor.submit(self._load_image_as_data_uri, uncached[0])
+
+                for i, img in enumerate(uncached):
+                    try:
+                        if self.debug:
+                            print(f"[CAPTIONER] Captioning {img.name}...")
+                        # Get current image's data URI (already loading or loaded)
+                        data_uri = next_future.result()
+
+                        # Pre-load next image while this one is being captioned
+                        if i + 1 < len(uncached):
+                            next_future = executor.submit(self._load_image_as_data_uri, uncached[i + 1])
+
+                        caption = self.model.caption_image(data_uri)
+                        self.cache.put(str(img), caption)
+                        new_captions.append((img, caption))
+                        done += 1
+                        if self.debug:
+                            print(f"[CAPTIONER] {done}/{total} done: {img.name} -> {caption[:60]}")
+                        self.send_fn(None, "captioning_progress", {
+                            "directoryId": self.dir_id,
+                            "done": done,
+                            "total": total,
+                        })
+                    except Exception as exc:
+                        log.warning(f"Error captioning {img.name}: {exc}")
+                        if self.debug:
+                            print(f"[CAPTIONER] Error captioning {img.name}: {exc}")
+                        # If preload failed for next image, we need to re-submit
+                        if i + 1 < len(uncached):
+                            next_future = executor.submit(self._load_image_as_data_uri, uncached[i + 1])
+                        continue
 
         # Inject ALL captions (cached + new) into the index
         all_captions = cached_captions + new_captions

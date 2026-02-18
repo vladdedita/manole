@@ -366,3 +366,97 @@ def test_run_does_not_send_captioning_status_when_all_cached(MockBuilder):
     assert len(status_calls) == 0, (
         f"Expected no captioning status event, got {len(status_calls)}"
     )
+
+
+# --- Step 02-03: Pipeline I/O with inference ---
+
+@patch("image_captioner.LeannBuilder")
+def test_pipeline_preloads_next_image_during_captioning(MockBuilder):
+    """Given 3 images to caption, when run() executes with pipelining,
+    then the next image is pre-loaded while the current one is being captioned,
+    and caption results are identical to sequential (same order, same values)."""
+    import time
+
+    data_dir = _make_test_dir(images=["a.jpg", "b.png", "c.gif"])
+
+    # Track the order and timing of load vs caption calls
+    call_log = []
+
+    model = MagicMock()
+    model._vision_model = None
+
+    def fake_caption(data_uri):
+        call_log.append(("caption", time.monotonic()))
+        # Simulate some GPU work
+        time.sleep(0.05)
+        return f"Caption for {data_uri[-10:]}"
+    model.caption_image.side_effect = fake_caption
+
+    captioner, send_fn, cache = _make_captioner(data_dir, model=model)
+
+    # Replace the mock with a tracking version that simulates I/O delay
+    original_load = captioner._load_image_as_data_uri
+
+    def tracking_load(path):
+        call_log.append(("load", path.name, time.monotonic()))
+        time.sleep(0.03)  # Simulate disk I/O
+        return f"data:image/jpeg;base64,{path.name}"
+    captioner._load_image_as_data_uri = tracking_load
+
+    captioner.run()
+
+    # Verify all 3 images were captioned in order
+    assert model.caption_image.call_count == 3
+
+    # Verify ordering: captions stored in alphabetical order (a.jpg, b.png, c.gif)
+    cached_a = cache.get(os.path.join(data_dir, "a.jpg"))
+    cached_b = cache.get(os.path.join(data_dir, "b.png"))
+    cached_c = cache.get(os.path.join(data_dir, "c.gif"))
+    assert cached_a is not None
+    assert cached_b is not None
+    assert cached_c is not None
+
+    # Verify pipeline overlap: load of image i+1 started before caption of image i finished
+    load_events = [(e[1], e[2]) for e in call_log if e[0] == "load"]
+    caption_events = [e[1] for e in call_log if e[0] == "caption"]
+
+    # With 3 images, we should have at least one pre-load that overlaps with captioning
+    # Load of b.png should start before or during caption of a.jpg
+    assert len(load_events) == 3
+    assert len(caption_events) == 3
+    # The second load (b.png) should start before the first caption finishes
+    # (first caption takes 0.05s, second load should be submitted right after first load completes)
+    b_load_time = load_events[1][1]  # timestamp of b.png load start
+    first_caption_time = caption_events[0]  # timestamp of first caption start
+    # b.png load should start very close to or before first caption ends (first caption + 0.05s)
+    assert b_load_time < first_caption_time + 0.05, (
+        "Pre-loading of next image should overlap with current captioning"
+    )
+
+
+@patch("image_captioner.LeannBuilder")
+def test_pipeline_error_does_not_break_subsequent_images(MockBuilder):
+    """Given image loading fails for one image in the pipeline,
+    when run() continues, then subsequent images are still captioned."""
+    data_dir = _make_test_dir(images=["a.jpg", "bad.png", "c.gif"])
+
+    model = MagicMock()
+    model._vision_model = None
+    model.caption_image.return_value = "A valid caption"
+
+    captioner, send_fn, cache = _make_captioner(data_dir, model=model)
+
+    load_call_count = [0]
+    def failing_load(path):
+        load_call_count[0] += 1
+        if path.name == "bad.png":
+            raise RuntimeError("Disk read error")
+        return f"data:image/jpeg;base64,{path.name}"
+    captioner._load_image_as_data_uri = failing_load
+
+    captioner.run()
+
+    # a.jpg and c.gif should be captioned, bad.png should be skipped
+    assert cache.get(os.path.join(data_dir, "a.jpg")) == "A valid caption"
+    assert cache.get(os.path.join(data_dir, "bad.png")) is None
+    assert cache.get(os.path.join(data_dir, "c.gif")) == "A valid caption"

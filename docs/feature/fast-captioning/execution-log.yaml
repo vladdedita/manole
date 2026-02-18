@@ -1,0 +1,102 @@
+events:
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T11:06:13Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T11:07:25Z'
+- d: PASS
+  p: RED_UNIT
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T11:07:31Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T11:08:16Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T11:08:35Z'
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T11:10:03Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T11:10:31Z'
+- d: 'NOT_APPLICABLE: acceptance test is parametrized and covers all 3 behaviors (downscale,
+    no-upscale, aspect-ratio) through driving port. Additional unit tests would be
+    redundant.'
+  p: RED_UNIT
+  s: SKIPPED
+  sid: 02-01
+  t: '2026-02-18T11:10:39Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T11:10:55Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T11:11:09Z'
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T11:12:08Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T11:13:33Z'
+- d: PASS
+  p: RED_UNIT
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T11:13:39Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T11:14:03Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T11:14:17Z'
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 02-03
+  t: '2026-02-18T11:15:23Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 02-03
+  t: '2026-02-18T11:16:07Z'
+- d: 'NOT_APPLICABLE: acceptance tests already cover all 3 behaviors through driving
+    port (run method) - pipeline overlap, ordering, error resilience. Additional unit
+    tests would test internal ThreadPoolExecutor wiring.'
+  p: RED_UNIT
+  s: SKIPPED
+  sid: 02-03
+  t: '2026-02-18T11:16:14Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 02-03
+  t: '2026-02-18T11:16:43Z'
+project_id: fast-captioning
+schema_version: '3.0'
