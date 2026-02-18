@@ -25,6 +25,9 @@ REWRITER_SYSTEM = (
     'Question: "how many eggs in carbonara"\n'
     '{"intent": "factual", "search_query": "carbonara recipe eggs ingredients", '
     '"resolved_query": "How many eggs does the carbonara recipe call for according to my files?"}\n\n'
+    'Question: "any cat drawings?"\n'
+    '{"intent": "list", "search_query": "cat drawing sketch feline artwork illustration photo image", '
+    '"resolved_query": "Are there any cat drawings or images of cats in my files?"}\n\n'
     "With conversation history:\n"
     'Recent conversation:\n'
     '  User: any animal pictures?\n'
@@ -65,12 +68,14 @@ class QueryRewriter:
             {"role": "system", "content": REWRITER_SYSTEM},
             {"role": "user", "content": user_msg},
         ]
+        if self.debug:
+            print(f"  [REWRITE] Sending to model: {user_msg[:120]!r}")
         raw = self.model.generate(messages, max_tokens=256)
 
         if self.debug:
             print(f"  [REWRITE] Raw: {raw}")
 
-        parsed = parse_json(raw)
+        parsed = parse_json(raw, debug=self.debug)
         if parsed is None:
             if self.debug:
                 print("  [REWRITE] Parse failed, using raw query")
