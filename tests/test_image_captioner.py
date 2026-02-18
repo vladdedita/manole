@@ -280,3 +280,46 @@ def test_leann_builder_constructed_with_is_recompute_false(MockBuilder):
         embedding_model="facebook/contriever",
         is_recompute=False,
     )
+
+
+# --- Step 02-01: Image downscaling before captioning ---
+
+
+@pytest.mark.parametrize("input_size,expected_max", [
+    ((4000, 3000), (768, 576)),   # large landscape -> downscaled, aspect preserved
+    ((3000, 4000), (576, 768)),   # large portrait -> downscaled, aspect preserved
+    ((200, 150), (200, 150)),     # small image -> NOT upscaled
+    ((768, 768), (768, 768)),     # exact boundary -> unchanged
+    ((1000, 500), (768, 384)),    # wide image -> width-limited
+])
+def test_downscales_large_images_preserving_aspect_ratio(input_size, expected_max, tmp_path):
+    """Given an image of various sizes, when loaded as data URI,
+    then large images are downscaled to fit 768x768 preserving aspect ratio,
+    and small images are not upscaled."""
+    from PIL import Image
+    from image_captioner import ImageCaptioner
+    from caption_cache import CaptionCache
+    import base64
+    import io
+
+    # Create a real image file
+    img = Image.new("RGB", input_size, color=(255, 0, 0))
+    img_path = tmp_path / "test.jpg"
+    img.save(img_path, format="JPEG")
+
+    # Create captioner with minimal deps (only need _load_image_as_data_uri)
+    captioner = ImageCaptioner(
+        model=MagicMock(),
+        index_path="/fake",
+        cache=MagicMock(),
+        data_dir=str(tmp_path),
+        send_fn=MagicMock(),
+        dir_id="test",
+    )
+
+    data_uri = captioner._load_image_as_data_uri(img_path)
+
+    # Decode the data URI back to check dimensions
+    b64_data = data_uri.split(",")[1]
+    result_img = Image.open(io.BytesIO(base64.b64decode(b64_data)))
+    assert result_img.size == expected_max
