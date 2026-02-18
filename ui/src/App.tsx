@@ -48,6 +48,25 @@ export default function App() {
               : d
           )
         );
+      } else if (response.type === "captioning_progress") {
+        const data = response.data as {
+          directoryId: string;
+          done: number;
+          total: number;
+          state?: "complete";
+        };
+        setDirectories((prev) =>
+          prev.map((d) =>
+            d.id === data.directoryId
+              ? {
+                  ...d,
+                  captioningProgress: data.state === "complete"
+                    ? undefined
+                    : { done: data.done, total: data.total },
+                }
+              : d
+          )
+        );
       }
     });
   }, [subscribe]);
@@ -284,7 +303,7 @@ export default function App() {
                 onOpenFolder={handleOpenFolder}
               />
             ) : isInitializing ? (
-              <LoadingScreen key="loading" backendState={backendState} />
+              <LoadingScreen key="loading" backendState={backendState} captioningProgress={activeDirectory?.captioningProgress} />
             ) : isReady && mode === "map" ? (
               <motion.div
                 key="map"
