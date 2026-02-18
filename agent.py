@@ -7,7 +7,7 @@ from searcher import extract_keywords
 TOOL_SCHEMAS = [
     {
         "name": "semantic_search",
-        "description": "Search inside file contents for information",
+        "description": "Search inside file contents and image descriptions for information. Images in the directory are captioned and searchable by their visual content.",
         "parameters": {
             "type": "object",
             "properties": {"query": {"type": "string", "description": "Search query"}},
@@ -115,10 +115,16 @@ class Agent:
                 )
                 if context:
                     context = f"Recent conversation:\n{context}"
+            if self.debug:
+                print(f"  [REWRITE] Input: {query!r} (context: {len(history) if history else 0} turns)")
             rewrite = self.rewriter.rewrite(query, context=context)
+            if self.debug:
+                print(f"  [REWRITE] Result: intent={rewrite['intent']}, resolved={rewrite['resolved_query']!r}")
 
         # Use resolved query for the model, search_query for semantic search
         effective_query = rewrite["resolved_query"] if rewrite else query
+        if self.debug and effective_query != query:
+            print(f"  [AGENT] effective_query differs: {effective_query!r}")
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -127,9 +133,12 @@ class Agent:
 
         messages.append({"role": "user", "content": effective_query})
 
+        if self.debug:
+            print(f"  [AGENT] Messages: {len(messages)} (history={len(history) if history else 0})")
+
         for step in range(self.MAX_STEPS):
             if self.debug:
-                print(f"  [AGENT] Step {step + 1}/{self.MAX_STEPS}")
+                print(f"  [AGENT] Step {step + 1}/{self.MAX_STEPS} | query={effective_query!r}")
 
             raw = self.model.generate(messages, stream=bool(on_token), on_token=on_token)
 
@@ -137,6 +146,11 @@ class Agent:
                 print(f"  [AGENT] Response: {raw[:200]}")
 
             tool_call = self._parse_tool_call(raw)
+            if self.debug:
+                if tool_call:
+                    print(f"  [AGENT] Parsed tool call: {tool_call['name']}({tool_call.get('params', {})})")
+                else:
+                    print("  [AGENT] Response: (no tool call detected)")
 
             if tool_call is None:
                 if step == 0:
@@ -266,6 +280,8 @@ class Agent:
             return False
 
         missing = [kw for kw in keywords if not _covered(kw, result_text)]
+        if self.debug:
+            print(f"  [AGENT] Followup check: keywords={keywords} missing={missing} tools_used={tools_used}")
         if not missing:
             return None
 
@@ -295,11 +311,15 @@ class Agent:
         if tc_match:
             result = self._parse_native_tool_call(tc_match.group(1))
             if result:
+                if self.debug:
+                    print(f"  [AGENT] Parse format: LFM2.5 native")
                 return result
 
         # Try JSON format
-        parsed = parse_json(response)
+        parsed = parse_json(response, debug=self.debug)
         if parsed and "name" in parsed:
+            if self.debug:
+                print(f"  [AGENT] Parse format: JSON")
             return {
                 "name": parsed["name"],
                 "params": parsed.get("params", parsed.get("parameters", {})),
@@ -310,6 +330,8 @@ class Agent:
         if bracket_match:
             result = self._parse_native_tool_call(bracket_match.group(1))
             if result:
+                if self.debug:
+                    print(f"  [AGENT] Parse format: bracket-wrapped")
                 return result
 
         # Try bare function call anywhere in response
@@ -321,6 +343,8 @@ class Agent:
             call_str = bare_match.group(0)
             result = self._parse_native_tool_call(call_str)
             if result:
+                if self.debug:
+                    print(f"  [AGENT] Parse format: bare function call")
                 return result
 
         return None

@@ -377,6 +377,14 @@ def test_known_tools_includes_metadata():
     assert "disk_usage" in Agent._KNOWN_TOOLS
 
 
+def test_semantic_search_description_mentions_image_captions():
+    """LLM must know image captions are searchable so it routes image queries to semantic_search."""
+    from agent import TOOL_SCHEMAS
+    semantic = next(t for t in TOOL_SCHEMAS if t["name"] == "semantic_search")
+    desc = semantic["description"].lower()
+    assert "image" in desc, f"semantic_search description should mention images: {semantic['description']}"
+
+
 def test_model_calls_folder_stats():
     model = _make_model([
         '<|tool_call_start|>folder_stats(sort_by="size")<|tool_call_end|>',
