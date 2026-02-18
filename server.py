@@ -240,62 +240,55 @@ class Server:
             "conversation_history": [],
         }
 
+        # --- Inline summary generation ---
+        summary = ""
+        try:
+            send(None, "status", {"state": "summarizing"})
+            self._log(f"Generating summary for {dir_id}...")
+            summary = self._generate_summary(dir_id)
+            self._log(f"Summary result: {repr(summary[:100]) if summary else '(empty)'}")
+            self.directories[dir_id]["summary"] = summary
+        except Exception as exc:
+            self._log(f"Summary generation failed: {exc}")
+
+        # --- Inline image captioning ---
+        try:
+            from image_captioner import ImageCaptioner
+            from caption_cache import CaptionCache
+
+            cache = CaptionCache(str(data_dir_path / ".neurofind" / "captions"))
+            captioner = ImageCaptioner(
+                model=self.model,
+                index_path=index_path,
+                cache=cache,
+                data_dir=str(data_dir_path),
+                send_fn=send,
+                dir_id=dir_id,
+                debug=self.debug,
+            )
+            images = captioner._find_images()
+            uncached_count = sum(1 for img in images if cache.get(str(img)) is None)
+            if uncached_count > 0:
+                send(None, "status", {"state": "captioning"})
+            captioner.run()
+            # Reload the in-memory index so searches include new captions
+            entry = self.directories.get(dir_id)
+            if entry and "searcher" in entry:
+                from leann import LeannSearcher as _LS
+                entry["searcher"].leann = _LS(index_path, enable_warmup=True)
+                self._log("Reloaded LeannSearcher with caption embeddings.")
+            self._log("Image captioning complete.")
+        except Exception as exc:
+            self._log(f"Image captioning failed: {exc}")
+
+        # --- Now mark ready ---
         self.state = "ready"
         self._log("All components wired. Ready.")
 
-        # Send ready immediately so the UI unblocks
         send(None, "directory_update", {
             "directoryId": dir_id, "state": "ready",
-            "stats": stats,
+            "stats": stats, "summary": summary,
         })
-
-        # Run summary generation + image captioning in background
-        # Both use self.model so they run sequentially in one thread
-        def _background_tasks():
-            # Summary generation
-            try:
-                self._log(f"Generating summary for {dir_id}...")
-                summary = self._generate_summary(dir_id)
-                self._log(f"Summary result: {repr(summary[:100]) if summary else '(empty)'}")
-                self.directories[dir_id]["summary"] = summary
-                if summary:
-                    send(None, "directory_update", {
-                        "directoryId": dir_id, "state": "ready",
-                        "stats": stats, "summary": summary,
-                    })
-                    self._log(f"Sent directory_update with summary for {dir_id}")
-            except Exception as exc:
-                self._log(f"Summary generation failed: {exc}")
-
-            # Image captioning (after summary, since both use the model)
-            try:
-                from image_captioner import ImageCaptioner
-                from caption_cache import CaptionCache
-
-                cache = CaptionCache(str(data_dir_path / ".neurofind" / "captions"))
-                captioner = ImageCaptioner(
-                    model=self.model,
-                    index_path=index_path,
-                    cache=cache,
-                    data_dir=str(data_dir_path),
-                    send_fn=send,
-                    dir_id=dir_id,
-                    debug=self.debug,
-                )
-                captioner.run()
-                # Reload the in-memory index so searches include new captions
-                entry = self.directories.get(dir_id)
-                if entry and "searcher" in entry:
-                    from leann import LeannSearcher as _LS
-                    entry["searcher"].leann = _LS(index_path, enable_warmup=True)
-                    self._log("Reloaded LeannSearcher with caption embeddings.")
-                self._log("Image captioning complete.")
-            except Exception as exc:
-                self._log(f"Image captioning failed: {exc}")
-
-        thread = threading.Thread(target=_background_tasks, daemon=True)
-        thread.start()
-        self.directories[dir_id]["background_thread"] = thread
 
         return {
             "id": req_id, "type": "result",

@@ -601,3 +601,186 @@ class TestQuerySources:
             assert r["sources"] == [str(tmp_path / "report.pdf")]
         finally:
             srv_mod.send = original_send
+
+
+def _init_patches():
+    """Return a dict of patch targets for handle_init's local imports."""
+    return {
+        "chat.build_index": "test_index",
+        "chat.find_index_path": "/tmp/test_index",
+        "chat.get_index_name": "test_index",
+    }
+
+
+def _make_init_context(tmp_path, mock_searcher_inst, mock_captioner_cls=None,
+                       mock_cache_cls=None):
+    """Create a stack of patches for handle_init dependencies."""
+    from contextlib import ExitStack
+    stack = ExitStack()
+    stack.enter_context(patch("chat.build_index", return_value="test_index"))
+    stack.enter_context(patch("chat.find_index_path", return_value="/tmp/test_index"))
+    stack.enter_context(patch("leann.LeannSearcher", return_value=MagicMock()))
+    stack.enter_context(patch("file_reader.FileReader", return_value=MagicMock()))
+    stack.enter_context(patch("toolbox.ToolBox", return_value=MagicMock()))
+    stack.enter_context(patch("searcher.Searcher", return_value=mock_searcher_inst))
+    stack.enter_context(patch("tools.ToolRegistry", return_value=MagicMock()))
+    stack.enter_context(patch("router.route", return_value=MagicMock()))
+    stack.enter_context(patch("rewriter.QueryRewriter", return_value=MagicMock()))
+    stack.enter_context(patch("agent.Agent", return_value=MagicMock()))
+    if mock_captioner_cls is not None:
+        stack.enter_context(patch("image_captioner.ImageCaptioner", mock_captioner_cls))
+    if mock_cache_cls is not None:
+        stack.enter_context(patch("caption_cache.CaptionCache", mock_cache_cls))
+    return stack
+
+
+class TestForegroundCaptioning:
+    """Acceptance: handle_init runs summary + captioning inline (no background thread)."""
+
+    def test_handle_init_sends_status_events_inline_and_no_thread(self, tmp_path):
+        """AC1-5: status events in order, captioning only when uncached, no thread,
+        errors don't block ready."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        try:
+            srv = Server()
+
+            # Pre-wire model so handle_init skips model loading
+            mock_model = MagicMock()
+            mock_model.generate.return_value = "Test summary"
+            srv.model = mock_model
+
+            # Create test files including an image
+            (tmp_path / "doc.txt").write_text("hello")
+            (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.return_value = "some facts"
+
+            mock_captioner = MagicMock()
+            mock_captioner._find_images.return_value = [tmp_path / "photo.jpg"]
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+
+            mock_cache = MagicMock()
+            mock_cache.get.return_value = None  # uncached
+            mock_cache_cls = MagicMock(return_value=mock_cache)
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls):
+                result = srv.handle_init(1, {"dataDir": str(tmp_path)})
+
+            # AC1: "summarizing" status sent
+            status_events = [(t, d) for t, d in sent if t == "status"]
+            status_states = [d["state"] for _, d in status_events]
+            assert "summarizing" in status_states, f"Expected 'summarizing' in {status_states}"
+
+            # AC2: "captioning" status sent (uncached images exist)
+            assert "captioning" in status_states, f"Expected 'captioning' in {status_states}"
+
+            # AC3: ready comes after summarizing and captioning
+            dir_updates = [(i, d) for i, (t, d) in enumerate(sent)
+                           if t == "directory_update" and d.get("state") == "ready"]
+            assert len(dir_updates) > 0, "Expected directory_update with ready"
+            ready_idx = dir_updates[-1][0]
+            sum_sent_idx = next(i for i, (t, d) in enumerate(sent)
+                                if t == "status" and d.get("state") == "summarizing")
+            cap_sent_idx = next(i for i, (t, d) in enumerate(sent)
+                                if t == "status" and d.get("state") == "captioning")
+            assert ready_idx > sum_sent_idx, "ready must come after summarizing"
+            assert ready_idx > cap_sent_idx, "ready must come after captioning"
+
+            # AC4: no threading.Thread in handle_init
+            import inspect
+            source = inspect.getsource(srv.handle_init)
+            assert "threading.Thread" not in source, "handle_init must not create threads"
+
+            # AC5: result is still ready
+            assert result["data"]["status"] == "ready"
+
+            # Verify captioner.run() was called
+            mock_captioner.run.assert_called_once()
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_handle_init_skips_captioning_status_when_all_cached(self, tmp_path):
+        """AC2 negative: no captioning status when all images cached."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        try:
+            srv = Server()
+            mock_model = MagicMock()
+            mock_model.generate.return_value = "Summary"
+            srv.model = mock_model
+
+            (tmp_path / "doc.txt").write_text("hello")
+            (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.return_value = "facts"
+
+            mock_captioner = MagicMock()
+            mock_captioner._find_images.return_value = [tmp_path / "photo.jpg"]
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+
+            mock_cache = MagicMock()
+            mock_cache.get.return_value = "cached caption"  # all cached
+            mock_cache_cls = MagicMock(return_value=mock_cache)
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls):
+                srv.handle_init(1, {"dataDir": str(tmp_path)})
+
+            status_states = [d["state"] for t, d in sent if t == "status"]
+            assert "captioning" not in status_states, \
+                "Should NOT send captioning status when all images cached"
+            assert "summarizing" in status_states
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_handle_init_errors_do_not_block_ready(self, tmp_path):
+        """AC5: exceptions in summary or captioning don't prevent ready."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        try:
+            srv = Server()
+            mock_model = MagicMock()
+            mock_model.generate.side_effect = RuntimeError("model exploded")
+            srv.model = mock_model
+
+            (tmp_path / "doc.txt").write_text("hello")
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.side_effect = RuntimeError("search failed")
+
+            mock_captioner = MagicMock()
+            mock_captioner._find_images.side_effect = RuntimeError("captioner broke")
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls):
+                result = srv.handle_init(1, {"dataDir": str(tmp_path)})
+
+            assert result["data"]["status"] == "ready"
+            dir_updates = [d for t, d in sent if t == "directory_update" and d.get("state") == "ready"]
+            assert len(dir_updates) > 0, "Must still send ready directory_update"
+
+        finally:
+            srv_mod.send = original_send
