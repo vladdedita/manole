@@ -12,13 +12,13 @@ class ModelManager:
     """
 
     DEFAULT_MODEL_PATH = "models/LFM2.5-1.2B-Instruct-Q4_0.gguf"
-    DEFAULT_VISION_MODEL_PATH = "models/LFM2.5-VL-1.6B-Q4_0.gguf"
-    DEFAULT_MMPROJ_PATH = "models/mmproj-LFM2.5-VL-1.6b-F16.gguf"
+    DEFAULT_VISION_MODEL_PATH = "models/moondream2-text-model-f16_ct-vicuna.gguf"
+    DEFAULT_MMPROJ_PATH = "models/moondream2-mmproj-f16-20250414.gguf"
 
     _lock = threading.Lock()
 
     TEXT_REPO_ID = "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"
-    VL_REPO_ID = "LiquidAI/LFM2.5-VL-1.6B-GGUF"
+    VL_REPO_ID = "ggml-org/moondream2-20250414-GGUF"
 
     def __init__(self, model_path: str | None = None,
                  vision_model_path: str | None = None,
@@ -45,7 +45,7 @@ class ModelManager:
     def vision_model(self):
         if self._vision_model is None:
             from llama_cpp import Llama
-            from llama_cpp.llama_chat_format import Llava15ChatHandler
+            from llama_cpp.llama_chat_format import MoondreamChatHandler
 
             self._ensure_model(self.vision_model_path, self.VL_REPO_ID,
                                Path(self.vision_model_path).name)
@@ -53,10 +53,10 @@ class ModelManager:
                                Path(self.mmproj_path).name)
 
             try:
-                chat_handler = Llava15ChatHandler(clip_model_path=self.mmproj_path)
+                chat_handler = MoondreamChatHandler(clip_model_path=self.mmproj_path)
             except Exception as e:
                 raise RuntimeError(
-                    f"Vision model mmproj is incompatible with Llava15ChatHandler. "
+                    f"Vision model mmproj is incompatible with MoondreamChatHandler. "
                     f"Expected mmproj file: {self.mmproj_path}. Error: {e}"
                 ) from e
             self._vision_model = Llama(

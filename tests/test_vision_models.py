@@ -17,7 +17,7 @@ def test_vision_model_not_loaded_on_init():
 
 def test_vision_model_lazy_loads_on_first_access():
     """Given a ModelManager, when vision_model property is accessed,
-    then the VL model loads with Llava15ChatHandler."""
+    then the VL model loads with MoondreamChatHandler."""
     from models import ModelManager
     mgr = ModelManager.__new__(ModelManager)
     mgr.n_threads = 4
@@ -28,7 +28,7 @@ def test_vision_model_lazy_loads_on_first_access():
     mock_llama = MagicMock()
     mock_handler = MagicMock()
     with patch("llama_cpp.Llama", return_value=mock_llama) as MockLlama, \
-         patch("llama_cpp.llama_chat_format.Llava15ChatHandler", return_value=mock_handler) as MockHandler, \
+         patch("llama_cpp.llama_chat_format.MoondreamChatHandler", return_value=mock_handler) as MockHandler, \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path"):
         result = mgr.vision_model
         MockHandler.assert_called_once_with(clip_model_path="/fake/mmproj.gguf")
@@ -50,7 +50,7 @@ def test_vision_model_loaded_only_once():
 
     mock_llama = MagicMock()
     with patch("llama_cpp.Llama", return_value=mock_llama) as MockLlama, \
-         patch("llama_cpp.llama_chat_format.Llava15ChatHandler", return_value=MagicMock()), \
+         patch("llama_cpp.llama_chat_format.MoondreamChatHandler", return_value=MagicMock()), \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path"):
         _ = mgr.vision_model
         _ = mgr.vision_model
@@ -61,10 +61,10 @@ def test_vision_model_loaded_only_once():
 # --- AC-16: Text-only directories (VL model never loaded) ---
 
 def test_default_vision_model_path():
-    """Given default init, vision_model_path points to the LFM VL GGUF."""
+    """Given default init, vision_model_path points to the VL GGUF."""
     from models import ModelManager
     mgr = ModelManager()
-    assert "LFM" in mgr.vision_model_path
+    assert "moondream2" in mgr.vision_model_path
 
 
 def test_custom_vision_model_path():
@@ -183,7 +183,7 @@ def test_vision_model_calls_ensure_model_for_both_files():
 
     mock_llama = MagicMock()
     with patch("llama_cpp.Llama", return_value=mock_llama), \
-         patch("llama_cpp.llama_chat_format.Llava15ChatHandler", return_value=MagicMock()), \
+         patch("llama_cpp.llama_chat_format.MoondreamChatHandler", return_value=MagicMock()), \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path") as mock_ensure:
         _ = mgr.vision_model
         assert mock_ensure.call_count == 2
@@ -193,7 +193,7 @@ def test_vision_model_calls_ensure_model_for_both_files():
 
 @pytest.mark.parametrize("exc_type", [ValueError, TypeError, OSError])
 def test_vision_model_raises_runtime_error_on_handler_failure(exc_type):
-    """Given Llava15ChatHandler raises an exception on incompatible mmproj,
+    """Given MoondreamChatHandler raises an exception on incompatible mmproj,
     when vision_model is accessed, then RuntimeError is raised with actionable message."""
     from models import ModelManager
     mgr = ModelManager.__new__(ModelManager)
@@ -202,10 +202,10 @@ def test_vision_model_raises_runtime_error_on_handler_failure(exc_type):
     mgr.mmproj_path = "/fake/mmproj.gguf"
     mgr._vision_model = None
 
-    with patch("llama_cpp.llama_chat_format.Llava15ChatHandler",
+    with patch("llama_cpp.llama_chat_format.MoondreamChatHandler",
                side_effect=exc_type("Invalid clip model")), \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path"):
-        with pytest.raises(RuntimeError, match="incompatible with Llava15ChatHandler"):
+        with pytest.raises(RuntimeError, match="incompatible with MoondreamChatHandler"):
             _ = mgr.vision_model
 
 
@@ -220,7 +220,7 @@ def test_load_vision_eagerly_triggers_property():
 
     mock_llama = MagicMock()
     with patch("llama_cpp.Llama", return_value=mock_llama), \
-         patch("llama_cpp.llama_chat_format.Llava15ChatHandler", return_value=MagicMock()), \
+         patch("llama_cpp.llama_chat_format.MoondreamChatHandler", return_value=MagicMock()), \
          patch.object(ModelManager, "_ensure_model", return_value="/fake/path"):
         mgr.load_vision()
         assert mgr._vision_model is mock_llama
