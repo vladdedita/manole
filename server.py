@@ -267,10 +267,6 @@ class Server:
                 dir_id=dir_id,
                 debug=self.debug,
             )
-            images = captioner._find_images()
-            uncached_count = sum(1 for img in images if cache.get(str(img)) is None)
-            if uncached_count > 0:
-                send(None, "status", {"state": "captioning"})
             captioner.run()
             # Reload the in-memory index so searches include new captions
             entry = self.directories.get(dir_id)

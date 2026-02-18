@@ -323,3 +323,46 @@ def test_downscales_large_images_preserving_aspect_ratio(input_size, expected_ma
     b64_data = data_uri.split(",")[1]
     result_img = Image.open(io.BytesIO(base64.b64decode(b64_data)))
     assert result_img.size == expected_max
+
+
+# --- Step 02-02: Captioner sends "captioning" status event ---
+
+@patch("image_captioner.LeannBuilder")
+def test_run_sends_captioning_status_when_uncached_images_exist(MockBuilder):
+    """Given a directory with uncached images, when run() executes,
+    then it sends a status event with state='captioning' exactly once."""
+    data_dir = _make_test_dir(images=["a.jpg", "b.png"])
+    captioner, send_fn, _ = _make_captioner(data_dir)
+
+    captioner.run()
+
+    status_calls = [
+        c for c in send_fn.call_args_list
+        if c[0][1] == "status" and c[0][2].get("state") == "captioning"
+    ]
+    assert len(status_calls) == 1, (
+        f"Expected exactly 1 captioning status event, got {len(status_calls)}"
+    )
+
+
+@patch("image_captioner.LeannBuilder")
+def test_run_does_not_send_captioning_status_when_all_cached(MockBuilder):
+    """Given all images are already cached, when run() executes,
+    then no status event with state='captioning' is sent."""
+    data_dir = _make_test_dir(images=["cached1.jpg", "cached2.png"])
+    from caption_cache import CaptionCache
+    cache = CaptionCache(os.path.join(data_dir, ".neurofind", "captions"))
+    cache.put(os.path.join(data_dir, "cached1.jpg"), "Already captioned")
+    cache.put(os.path.join(data_dir, "cached2.png"), "Already captioned")
+
+    captioner, send_fn, _ = _make_captioner(data_dir, cache=cache)
+
+    captioner.run()
+
+    status_calls = [
+        c for c in send_fn.call_args_list
+        if c[0][1] == "status" and c[0][2].get("state") == "captioning"
+    ]
+    assert len(status_calls) == 0, (
+        f"Expected no captioning status event, got {len(status_calls)}"
+    )

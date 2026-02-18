@@ -686,8 +686,8 @@ class TestForegroundCaptioning:
     """Acceptance: handle_init runs summary + captioning inline (no background thread)."""
 
     def test_handle_init_sends_status_events_inline_and_no_thread(self, tmp_path):
-        """AC1-5: status events in order, captioning only when uncached, no thread,
-        errors don't block ready."""
+        """AC1-5: status events in order, server calls captioner.run() directly
+        without pre-scanning, no thread, errors don't block ready."""
         from server import Server
         import server as srv_mod
 
@@ -711,12 +711,9 @@ class TestForegroundCaptioning:
             mock_searcher_inst.search_and_extract.return_value = "some facts"
 
             mock_captioner = MagicMock()
-            mock_captioner._find_images.return_value = [tmp_path / "photo.jpg"]
             mock_captioner_cls = MagicMock(return_value=mock_captioner)
 
-            mock_cache = MagicMock()
-            mock_cache.get.return_value = None  # uncached
-            mock_cache_cls = MagicMock(return_value=mock_cache)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
 
             with _make_init_context(tmp_path, mock_searcher_inst,
                                     mock_captioner_cls, mock_cache_cls):
@@ -727,20 +724,13 @@ class TestForegroundCaptioning:
             status_states = [d["state"] for _, d in status_events]
             assert "summarizing" in status_states, f"Expected 'summarizing' in {status_states}"
 
-            # AC2: "captioning" status sent (uncached images exist)
-            assert "captioning" in status_states, f"Expected 'captioning' in {status_states}"
+            # AC2: server does NOT send "captioning" status (captioner.run() is responsible)
+            server_captioning = [s for s in status_states if s == "captioning"]
+            assert len(server_captioning) == 0, \
+                "Server must not send captioning status — captioner.run() owns that"
 
-            # AC3: ready comes after summarizing and captioning
-            dir_updates = [(i, d) for i, (t, d) in enumerate(sent)
-                           if t == "directory_update" and d.get("state") == "ready"]
-            assert len(dir_updates) > 0, "Expected directory_update with ready"
-            ready_idx = dir_updates[-1][0]
-            sum_sent_idx = next(i for i, (t, d) in enumerate(sent)
-                                if t == "status" and d.get("state") == "summarizing")
-            cap_sent_idx = next(i for i, (t, d) in enumerate(sent)
-                                if t == "status" and d.get("state") == "captioning")
-            assert ready_idx > sum_sent_idx, "ready must come after summarizing"
-            assert ready_idx > cap_sent_idx, "ready must come after captioning"
+            # AC3: server does NOT call _find_images() — no pre-scan
+            mock_captioner._find_images.assert_not_called()
 
             # AC4: no threading.Thread in handle_init
             import inspect
@@ -750,14 +740,14 @@ class TestForegroundCaptioning:
             # AC5: result is still ready
             assert result["data"]["status"] == "ready"
 
-            # Verify captioner.run() was called
+            # Verify captioner.run() was called directly
             mock_captioner.run.assert_called_once()
 
         finally:
             srv_mod.send = original_send
 
-    def test_handle_init_skips_captioning_status_when_all_cached(self, tmp_path):
-        """AC2 negative: no captioning status when all images cached."""
+    def test_handle_init_does_not_prescan_images(self, tmp_path):
+        """Server does not call _find_images() or count uncached — delegates to captioner.run()."""
         from server import Server
         import server as srv_mod
 
@@ -778,21 +768,22 @@ class TestForegroundCaptioning:
             mock_searcher_inst.search_and_extract.return_value = "facts"
 
             mock_captioner = MagicMock()
-            mock_captioner._find_images.return_value = [tmp_path / "photo.jpg"]
             mock_captioner_cls = MagicMock(return_value=mock_captioner)
-
-            mock_cache = MagicMock()
-            mock_cache.get.return_value = "cached caption"  # all cached
-            mock_cache_cls = MagicMock(return_value=mock_cache)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
 
             with _make_init_context(tmp_path, mock_searcher_inst,
                                     mock_captioner_cls, mock_cache_cls):
-                srv.handle_init(1, {"dataDir": str(tmp_path)})
+                result = srv.handle_init(1, {"dataDir": str(tmp_path)})
 
+            # Server must NOT call _find_images or send captioning status
+            mock_captioner._find_images.assert_not_called()
             status_states = [d["state"] for t, d in sent if t == "status"]
             assert "captioning" not in status_states, \
-                "Should NOT send captioning status when all images cached"
-            assert "summarizing" in status_states
+                "Server must not send captioning status — captioner.run() owns that"
+
+            # But captioner.run() must be called
+            mock_captioner.run.assert_called_once()
+            assert result["data"]["status"] == "ready"
 
         finally:
             srv_mod.send = original_send

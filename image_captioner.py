@@ -50,6 +50,7 @@ class ImageCaptioner:
         # Caption uncached images
         new_captions: list[tuple[Path, str]] = []
         if total > 0:
+            self.send_fn(None, "status", {"state": "captioning"})
             log.info(f"{total} uncached images to caption")
             if self.debug:
                 print(f"[CAPTIONER] {total} uncached images to caption")
