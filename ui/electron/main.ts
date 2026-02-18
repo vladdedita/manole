@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'path'
+import { execFileSync } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PythonBridge } from './python'
 
@@ -54,6 +55,39 @@ app.whenReady().then(() => {
 
   ipcMain.handle('open-file', async (_event, filePath: string) => {
     return shell.openPath(filePath)
+  })
+
+  ipcMain.handle('get-app-metrics', () => {
+    // Sum memory from all Electron processes (main, renderer, GPU, etc.)
+    const metrics = app.getAppMetrics()
+    let electronMemBytes = 0
+    let electronCpuPercent = 0
+    for (const m of metrics) {
+      electronMemBytes += (m.memory.workingSetSize ?? 0) * 1024 // KB → bytes
+      electronCpuPercent += m.cpu.percentCPUUsage ?? 0
+    }
+
+    // Get Python child process memory via ps (macOS/Linux)
+    let pythonMemBytes = 0
+    let pythonCpuPercent = 0
+    const pid = python.pid
+    if (pid) {
+      try {
+        const out = execFileSync('ps', ['-o', 'rss=,pcpu=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+        const parts = out.split(/\s+/)
+        if (parts.length >= 2) {
+          pythonMemBytes = parseInt(parts[0], 10) * 1024 // KB → bytes
+          pythonCpuPercent = parseFloat(parts[1]) || 0
+        }
+      } catch {
+        // Process may have exited
+      }
+    }
+
+    return {
+      memoryBytes: electronMemBytes + pythonMemBytes,
+      cpuPercent: Math.round(electronCpuPercent + pythonCpuPercent),
+    }
   })
 
   ipcMain.handle('dialog:openDirectory', async () => {

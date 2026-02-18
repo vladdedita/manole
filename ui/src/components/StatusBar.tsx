@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 interface StatusBarProps {
   backendState: string;
   directory?: string;
@@ -21,8 +23,36 @@ function statusConfig(state: string): { label: string; color: string } {
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function useAppMetrics() {
+  const [metrics, setMetrics] = useState<{ memoryBytes: number; cpuPercent: number } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const m = await window.api.getAppMetrics();
+        if (active) setMetrics(m);
+      } catch {
+        // IPC not available (e.g. dev mode without Electron)
+      }
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => { active = false; clearInterval(id); };
+  }, []);
+
+  return metrics;
+}
+
 export function StatusBar({ backendState, directory }: StatusBarProps) {
   const { label, color } = statusConfig(backendState);
+  const metrics = useAppMetrics();
 
   const truncatedDir = directory
     ? directory.length > 40
@@ -44,7 +74,19 @@ export function StatusBar({ backendState, directory }: StatusBarProps) {
       <div className="px-4 border-r border-border">LFM2.5-1.2B</div>
 
       {/* Directory */}
-      <div className="px-4 truncate">{truncatedDir}</div>
+      <div className="px-4 truncate flex-1">{truncatedDir}</div>
+
+      {/* Resource usage */}
+      {metrics && (
+        <div className="flex items-center gap-3 pl-4 border-l border-border">
+          <span title="Total app memory (Electron + Python)">
+            RAM {formatBytes(metrics.memoryBytes)}
+          </span>
+          <span title="Total app CPU usage">
+            CPU {metrics.cpuPercent}%
+          </span>
+        </div>
+      )}
     </div>
   );
 }

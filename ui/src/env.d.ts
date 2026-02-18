@@ -6,5 +6,6 @@ interface Window {
     onMessage: (callback: (response: unknown) => void) => () => void;
     selectDirectory: () => Promise<string | null>;
     openFile: (filePath: string) => Promise<string>;
+    getAppMetrics: () => Promise<{ memoryBytes: number; cpuPercent: number }>;
   };
 }

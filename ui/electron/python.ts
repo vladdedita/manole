@@ -12,13 +12,20 @@ export class PythonBridge {
   private handlers: Map<number, ResponseHandler> = new Map();
   private globalHandler: ResponseHandler | null = null;
 
+  private getProjectRoot(): string {
+    if (app.isPackaged) {
+      return process.resourcesPath;
+    }
+    // __dirname is ui/out/main in dev, so 3 levels up to project root
+    return join(__dirname, "..", "..", "..");
+  }
+
   private getPythonCommand(): { command: string; args: string[] } {
     if (app.isPackaged) {
       const binary = join(process.resourcesPath, "manole-server");
       return { command: binary, args: [] };
     }
-    // __dirname is ui/out/main in dev, so 3 levels up to project root
-    const projectRoot = join(__dirname, "..", "..", "..");
+    const projectRoot = this.getProjectRoot();
     const python = join(projectRoot, ".venv", "bin", "python");
     const serverPy = join(projectRoot, "server.py");
     return { command: python, args: [serverPy] };
@@ -28,9 +35,11 @@ export class PythonBridge {
     const { command, args } = this.getPythonCommand();
     this.globalHandler = onMessage;
 
-    console.error(`[python] spawning: ${command} ${args.join(" ")}`);
+    const cwd = this.getProjectRoot();
+    console.error(`[python] spawning: ${command} ${args.join(" ")} (cwd: ${cwd})`);
     this.process = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
+      cwd,
     });
 
     const rl = createInterface({ input: this.process.stdout! });
@@ -49,7 +58,7 @@ export class PythonBridge {
           onMessage(response);
         }
       } catch {
-        // Ignore non-JSON lines
+        // Non-JSON lines from C libraries (llama.cpp) — ignore
       }
     });
 
@@ -83,6 +92,10 @@ export class PythonBridge {
       const line = JSON.stringify(request) + "\n";
       this.process.stdin.write(line);
     });
+  }
+
+  get pid(): number | undefined {
+    return this.process?.pid
   }
 
   kill(): void {

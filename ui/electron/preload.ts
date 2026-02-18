@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
   selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
-  openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath)
+  openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath),
+  getAppMetrics: () => ipcRenderer.invoke('get-app-metrics') as Promise<{ memoryBytes: number; cpuPercent: number }>
 })
