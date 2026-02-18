@@ -14,6 +14,7 @@ export interface ChatMessage {
   text: string;
   isStreaming: boolean;
   agentSteps: AgentStep[];
+  sources: string[];
 }
 
 interface ChatState {
@@ -26,7 +27,7 @@ type ChatAction =
   | { type: "user_message"; text: string }
   | { type: "stream_token"; text: string }
   | { type: "agent_step"; step: AgentStep }
-  | { type: "response_complete"; text: string }
+  | { type: "response_complete"; text: string; sources: string[] }
   | { type: "error"; message: string }
   | { type: "clear" };
 
@@ -39,6 +40,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         text: action.text,
         isStreaming: false,
         agentSteps: [],
+        sources: [],
       };
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
@@ -46,6 +48,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         text: "",
         isStreaming: true,
         agentSteps: [],
+        sources: [],
       };
       return {
         ...state,
@@ -68,6 +71,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       if (last?.role === "assistant" && last.isStreaming) {
         messages[messages.length - 1] = {
           ...last,
+          text: "",
           agentSteps: [...last.agentSteps, action.step],
         };
       }
@@ -77,7 +81,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       const messages = [...state.messages];
       const last = messages[messages.length - 1];
       if (last?.role === "assistant") {
-        messages[messages.length - 1] = { ...last, text: action.text, isStreaming: false };
+        // Use final text from server — it's the authoritative answer
+        // (streamed tokens may include raw tool-call syntax)
+        const text = action.text || last.text;
+        messages[messages.length - 1] = { ...last, text, isStreaming: false, sources: action.sources };
       }
       return { ...state, messages, isLoading: false };
     }
@@ -91,7 +98,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 }
 
 export function useChat() {
-  const { send, subscribe, backendState, logs } = usePython();
+  const { send, subscribe, backendState, logs, resetBackendState } = usePython();
   const [state, dispatch] = useReducer(chatReducer, {
     messages: [],
     isLoading: false,
@@ -117,11 +124,15 @@ export function useChat() {
   }, [subscribe]);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, directoryId?: string | null, searchAll?: boolean) => {
       dispatch({ type: "user_message", text });
-      const result = await send("query", { text });
+      const params: Record<string, unknown> = { text };
+      if (directoryId) params.directoryId = directoryId;
+      if (searchAll) params.searchAll = true;
+      const result = await send("query", params);
       if (result.type === "result") {
-        dispatch({ type: "response_complete", text: (result.data as { text: string }).text });
+        const data = result.data as { text: string; sources?: string[] };
+        dispatch({ type: "response_complete", text: data.text, sources: data.sources || [] });
       } else if (result.type === "error") {
         dispatch({ type: "error", message: (result.data as { message: string }).message });
       }
@@ -143,6 +154,9 @@ export function useChat() {
     logs,
     sendMessage,
     initBackend,
+    resetBackendState,
     clearChat: () => dispatch({ type: "clear" }),
+    subscribe,
+    send,
   };
 }

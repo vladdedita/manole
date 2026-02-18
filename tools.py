@@ -114,9 +114,10 @@ TOOL_DEFINITIONS = [
 class ToolRegistry:
     """Maps tool names to execution functions."""
 
-    def __init__(self, searcher, toolbox):
+    def __init__(self, searcher, toolbox, debug: bool = False):
         self.searcher = searcher
         self.toolbox = toolbox
+        self.debug = debug
         self._handlers = {
             "semantic_search": self._semantic_search,
             "count_files": self._count_files,
@@ -128,43 +129,50 @@ class ToolRegistry:
             "disk_usage": self._disk_usage,
         }
 
-    def execute(self, tool_name: str, params: dict) -> str:
+    def execute(self, tool_name: str, params: dict) -> tuple[str, list[str]]:
         handler = self._handlers.get(tool_name)
         if not handler:
-            return f"Unknown tool: {tool_name}"
-        return handler(params)
+            if self.debug:
+                print(f"  [TOOLS] Unknown tool: {tool_name}")
+            return (f"Unknown tool: {tool_name}", [])
+        if self.debug:
+            print(f"  [TOOLS] Executing: {tool_name}({params})")
+        result = handler(params)
+        if self.debug:
+            print(f"  [TOOLS] Result: {len(result[0])} chars | {result[0][:120]!r}")
+        return result
 
-    def _semantic_search(self, params: dict) -> str:
+    def _semantic_search(self, params: dict) -> tuple[str, list[str]]:
         query = params.get("query", "")
         top_k = min(params.get("top_k", 5), 10)
         return self.searcher.search_and_extract(query, top_k=top_k)
 
-    def _count_files(self, params: dict) -> str:
-        return self.toolbox.count_files(ext_filter=params.get("extension"))
+    def _count_files(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.count_files(ext_filter=params.get("extension")), [])
 
-    def _list_files(self, params: dict) -> str:
-        return self.toolbox.list_recent_files(
+    def _list_files(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.list_recent_files(
             ext_filter=params.get("extension"),
             limit=params.get("limit", 10),
             sort_by=params.get("sort_by", "date"),
-        )
+        ), [])
 
-    def _file_metadata(self, params: dict) -> str:
-        return self.toolbox.get_file_metadata(name_hint=params.get("name_hint"))
+    def _file_metadata(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.get_file_metadata(name_hint=params.get("name_hint")), [])
 
-    def _grep_files(self, params: dict) -> str:
-        return self.toolbox.grep(params.get("pattern", ""))
+    def _grep_files(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.grep(params.get("pattern", "")), [])
 
-    def _directory_tree(self, params: dict) -> str:
-        return self.toolbox.tree(max_depth=params.get("max_depth", 2))
+    def _directory_tree(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.tree(max_depth=params.get("max_depth", 2)), [])
 
-    def _folder_stats(self, params: dict) -> str:
-        return self.toolbox.folder_stats(
+    def _folder_stats(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.folder_stats(
             sort_by=params.get("sort_by", "size"),
             limit=params.get("limit", 10),
             extension=params.get("extension"),
             order=params.get("order", "desc"),
-        )
+        ), [])
 
-    def _disk_usage(self, params: dict) -> str:
-        return self.toolbox.disk_usage()
+    def _disk_usage(self, params: dict) -> tuple[str, list[str]]:
+        return (self.toolbox.disk_usage(), [])

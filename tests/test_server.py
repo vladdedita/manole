@@ -115,12 +115,13 @@ class TestQueryStreaming:
             srv.state = "ready"
 
             mock_agent = MagicMock()
-            mock_agent.run.return_value = "hello world"
+            mock_agent.run.return_value = ("hello world", [])
             srv.directories["test"] = {
                 "agent": mock_agent,
                 "conversation_history": [],
                 "state": "ready",
                 "dir_id": "test",
+                "path": "/tmp/test",
             }
 
             result = srv.handle_query(1, {"text": "test query", "directoryId": "test"})
@@ -216,16 +217,18 @@ class TestQueryRouting:
             srv = Server()
             srv.state = "ready"
             mock_agent = MagicMock()
-            mock_agent.run.return_value = "response"
+            mock_agent.run.return_value = ("response", [])
             srv.directories["dir1"] = {
                 "dir_id": "dir1",
                 "state": "ready",
                 "agent": mock_agent,
                 "conversation_history": [],
+                "path": "/tmp/dir1",
             }
             result = srv.handle_query(1, {"text": "hello"})
             assert result["type"] == "result"
             assert result["data"]["text"] == "response"
+            assert result["data"]["sources"] == []
         finally:
             srv_mod.send = original_send
 
@@ -475,3 +478,126 @@ class TestGetFileGraph:
             mock_build.return_value = {"nodes": [], "edges": []}
             result = srv.dispatch({"id": 1, "method": "getFileGraph", "params": {"directoryId": "test"}})
             assert result["type"] == "result"
+
+
+class TestQuerySources:
+    """Test that query results include resolved source paths."""
+
+    def test_query_result_includes_sources(self, tmp_path):
+        """The result from handle_query includes a sources array with resolved paths."""
+        from server import Server
+        import server as srv_mod
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: None
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+
+            # Create a real file so path resolution finds it
+            (tmp_path / "file.pdf").write_bytes(b"fake")
+
+            mock_agent = MagicMock()
+            mock_agent.run.return_value = ("answer text", ["file.pdf"])
+            srv.directories["test"] = {
+                "agent": mock_agent,
+                "conversation_history": [],
+                "state": "ready",
+                "dir_id": "test",
+                "path": str(tmp_path),
+            }
+
+            result = srv.handle_query(1, {"text": "test query", "directoryId": "test"})
+            assert result["type"] == "result"
+            assert result["data"]["text"] == "answer text"
+            assert result["data"]["sources"] == [str(tmp_path / "file.pdf")]
+        finally:
+            srv_mod.send = original_send
+
+    def test_query_resolves_nested_source(self, tmp_path):
+        """Sources in subdirectories are found via os.walk."""
+        from server import Server
+        import server as srv_mod
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: None
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+
+            sub = tmp_path / "sub"
+            sub.mkdir()
+            (sub / "deep.pdf").write_bytes(b"fake")
+
+            mock_agent = MagicMock()
+            mock_agent.run.return_value = ("found it", ["deep.pdf"])
+            srv.directories["test"] = {
+                "agent": mock_agent,
+                "conversation_history": [],
+                "state": "ready",
+                "dir_id": "test",
+                "path": str(tmp_path),
+            }
+
+            result = srv.handle_query(1, {"text": "find deep", "directoryId": "test"})
+            assert result["data"]["sources"] == [str(sub / "deep.pdf")]
+        finally:
+            srv_mod.send = original_send
+
+    def test_query_unresolvable_source_fallback(self):
+        """Sources that can't be found on disk fall back to the bare name."""
+        from server import Server
+        import server as srv_mod
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: None
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+
+            mock_agent = MagicMock()
+            mock_agent.run.return_value = ("text", ["nonexistent.pdf"])
+            srv.directories["test"] = {
+                "agent": mock_agent,
+                "conversation_history": [],
+                "state": "ready",
+                "dir_id": "test",
+                "path": "/tmp/empty_dir_unlikely_to_exist",
+            }
+
+            result = srv.handle_query(1, {"text": "q", "directoryId": "test"})
+            assert result["data"]["sources"] == ["nonexistent.pdf"]
+        finally:
+            srv_mod.send = original_send
+
+    def test_query_all_includes_sources(self, tmp_path):
+        """_query_all also includes sources in each directory result."""
+        from server import Server
+        import server as srv_mod
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: None
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+
+            (tmp_path / "report.pdf").write_bytes(b"data")
+
+            mock_agent = MagicMock()
+            mock_agent.run.return_value = ("merged", ["report.pdf"])
+            srv.directories["d1"] = {
+                "agent": mock_agent,
+                "conversation_history": [],
+                "state": "ready",
+                "dir_id": "d1",
+                "path": str(tmp_path),
+            }
+
+            result = srv._query_all(1, "search everything")
+            assert result["type"] == "result"
+            assert len(result["data"]["results"]) == 1
+            r = result["data"]["results"][0]
+            assert r["text"] == "merged"
+            assert r["sources"] == [str(tmp_path / "report.pdf")]
+        finally:
+            srv_mod.send = original_send

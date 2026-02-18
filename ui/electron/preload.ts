@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.removeListener('python:message', listener)
     }
   },
-  selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory')
+  selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
+  openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath)
 })

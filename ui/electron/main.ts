@@ -52,6 +52,10 @@ app.whenReady().then(() => {
     return python.send(method, params ?? {})
   })
 
+  ipcMain.handle('open-file', async (_event, filePath: string) => {
+    return shell.openPath(filePath)
+  })
+
   ipcMain.handle('dialog:openDirectory', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openDirectory'],

@@ -102,8 +102,9 @@ class Agent:
         self.rewriter = rewriter
         self.debug = debug
 
-    def run(self, query: str, history: list[dict] = None, on_token=None, on_step=None) -> str:
-        """Run the agent loop for a user query."""
+    def run(self, query: str, history: list[dict] = None, on_token=None, on_step=None) -> tuple[str, list[str]]:
+        """Run the agent loop for a user query. Returns (answer, sources)."""
+        all_sources: list[str] = []
         # Rewrite query for better intent detection and search
         rewrite = None
         if self.rewriter:
@@ -165,7 +166,8 @@ class Agent:
                         print(f"  [AGENT] Fallback router: {tool_name}({params})")
                     if on_step:
                         on_step(step, tool_name, params)
-                    result = self.tools.execute(tool_name, params)
+                    result, sources = self.tools.execute(tool_name, params)
+                    all_sources.extend(sources)
                     messages.append({"role": "assistant", "content": raw})
                     messages.append({
                         "role": "tool",
@@ -181,7 +183,8 @@ class Agent:
                             print(f"  [AGENT] Followup: {tool_name}({tool_params})")
                         if on_step:
                             on_step(step, tool_name, tool_params)
-                        result = self.tools.execute(tool_name, tool_params)
+                        result, sources = self.tools.execute(tool_name, tool_params)
+                        all_sources.extend(sources)
                         if self.debug:
                             print(f"  [AGENT] Followup result: {result[:200]}")
                         messages.append({"role": "assistant", "content": raw})
@@ -192,7 +195,7 @@ class Agent:
                         continue
                     if self.debug:
                         print("  [AGENT] Direct response (no tool call)")
-                    return raw
+                    return (raw, list(dict.fromkeys(all_sources)))
 
             tool_name = tool_call["name"]
             tool_params = tool_call.get("params", {})
@@ -201,11 +204,12 @@ class Agent:
                 print(f"  [AGENT] Tool: {tool_name}({tool_params})")
 
             if tool_name == "respond":
-                return tool_params.get("answer", raw)
+                return (tool_params.get("answer", raw), list(dict.fromkeys(all_sources)))
 
             if on_step:
                 on_step(step, tool_name, tool_params)
-            result = self.tools.execute(tool_name, tool_params)
+            result, sources = self.tools.execute(tool_name, tool_params)
+            all_sources.extend(sources)
 
             if self.debug:
                 print(f"  [AGENT] Result: {result[:200]}")
@@ -224,7 +228,8 @@ class Agent:
             "role": "user",
             "content": "Give a concise final answer based on the information above.",
         })
-        return self.model.generate(messages, stream=bool(on_token), on_token=on_token)
+        final = self.model.generate(messages, stream=bool(on_token), on_token=on_token)
+        return (final, list(dict.fromkeys(all_sources)))
 
     _KNOWN_TOOLS = frozenset({
         "semantic_search", "count_files", "list_files", "grep_files",

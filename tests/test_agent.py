@@ -11,7 +11,10 @@ class FakeToolRegistry:
 
     def execute(self, tool_name, params):
         self.calls.append((tool_name, params))
-        return self.responses.get(tool_name, f"Result for {tool_name}")
+        resp = self.responses.get(tool_name, f"Result for {tool_name}")
+        if isinstance(resp, tuple):
+            return resp  # already (text, sources)
+        return (resp, [])  # backward compat for tests that pass plain strings
 
 
 class FakeRouter:
@@ -41,7 +44,7 @@ def test_model_tool_call_semantic_search():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("what is the budget?")
+    answer, sources = agent.run("what is the budget?")
 
     assert answer == "The budget is $450,000."
     assert tools.calls[0] == ("semantic_search", {"query": "budget"})
@@ -58,7 +61,7 @@ def test_fallback_router_on_step_0():
     router = FakeRouter(tool_name="count_files", params={"extension": "pdf"})
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many PDFs?")
+    answer, sources = agent.run("how many PDFs?")
 
     assert router.called
     assert "5" in answer
@@ -74,7 +77,7 @@ def test_direct_answer_on_later_step():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many PDFs?")
+    answer, sources = agent.run("how many PDFs?")
 
     assert "3" in answer
 
@@ -89,7 +92,7 @@ def test_respond_tool():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many text files?")
+    answer, sources = agent.run("how many text files?")
 
     assert answer == "You have 2 text files."
 
@@ -103,7 +106,7 @@ def test_max_steps_forces_synthesis():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("complex question")
+    answer, sources = agent.run("complex question")
 
     assert answer == "Final forced answer."
     assert model.generate.call_count == 6  # 5 tool calls + 1 forced synthesis
@@ -172,7 +175,7 @@ def test_json_tool_call_format():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many PDFs?")
+    answer, sources = agent.run("how many PDFs?")
 
     assert "5" in answer
     assert tools.calls[0] == ("count_files", {"extension": "pdf"})
@@ -188,7 +191,7 @@ def test_debug_mode():
     router = FakeRouter("semantic_search", {"query": "test"})
 
     agent = Agent(model, tools, router, debug=True)
-    answer = agent.run("test")
+    answer, sources = agent.run("test")
     assert answer  # just verify no crash
 
 
@@ -202,7 +205,7 @@ def test_unknown_tool_returns_error_to_model():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("do magic")
+    answer, sources = agent.run("do magic")
     # Agent should still work — unknown tool result goes back as message
     assert answer is not None
 
@@ -217,7 +220,7 @@ def test_bracket_format_tool_call():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("find invoices")
+    answer, sources = agent.run("find invoices")
 
     assert tools.calls[0] == ("semantic_search", {"query": "invoices"})
     assert not router.called
@@ -233,7 +236,7 @@ def test_bare_function_call():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many PDFs?")
+    answer, sources = agent.run("how many PDFs?")
 
     assert tools.calls[0] == ("count_files", {"extension": "pdf"})
     assert not router.called
@@ -253,7 +256,7 @@ def test_followup_semantic_search_when_keyword_missing():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("any macbook pdfs")
+    answer, sources = agent.run("any macbook pdfs")
 
     tool_calls = [(name, params) for name, params in tools.calls]
     assert ("count_files", {"extension": "pdf"}) in tool_calls
@@ -287,7 +290,7 @@ def test_bracket_format_directory_tree():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("what folders do I have?")
+    answer, sources = agent.run("what folders do I have?")
 
     assert tools.calls[0] == ("directory_tree", {"max_depth": 2})
     assert not router.called
@@ -303,7 +306,7 @@ def test_tool_call_extracted_from_prose():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many PDFs?")
+    answer, sources = agent.run("how many PDFs?")
 
     assert tools.calls[0] == ("count_files", {"extension": "pdf"})
     assert not router.called
@@ -323,7 +326,7 @@ def test_followup_semantic_search_after_grep():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("what is the revenue from invoices")
+    answer, sources = agent.run("what is the revenue from invoices")
 
     tool_calls = [(name, params) for name, params in tools.calls]
     assert any(name == "grep_files" for name, params in tool_calls)
@@ -342,7 +345,7 @@ def test_no_followup_when_keywords_covered():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how many eggs in carbonara")
+    answer, sources = agent.run("how many eggs in carbonara")
 
     assert answer == "The recipe calls for 4 eggs."
     assert len(tools.calls) == 1
@@ -364,7 +367,7 @@ def test_followup_stops_after_both_tools_tried():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("any macbook pdfs")
+    answer, sources = agent.run("any macbook pdfs")
 
     assert answer == "I found some results."
     tool_names = [name for name, _ in tools.calls]
@@ -394,7 +397,7 @@ def test_model_calls_folder_stats():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("what folders take up the most space?")
+    answer, sources = agent.run("what folders take up the most space?")
 
     assert tools.calls[0] == ("folder_stats", {"sort_by": "size"})
     assert not router.called
@@ -409,7 +412,7 @@ def test_model_calls_disk_usage():
     router = FakeRouter()
 
     agent = Agent(model, tools, router)
-    answer = agent.run("how much space am I using?")
+    answer, sources = agent.run("how much space am I using?")
 
     assert tools.calls[0] == ("disk_usage", {})
     assert not router.called
@@ -441,3 +444,19 @@ def test_image_stopwords_in_followup_stopwords():
     """Image-related generic terms should be in _FOLLOWUP_STOPWORDS."""
     expected = {"image", "images", "picture", "pictures", "photo", "photos", "drawing", "drawings"}
     assert expected.issubset(Agent._FOLLOWUP_STOPWORDS)
+
+
+def test_run_returns_sources():
+    """Agent.run() returns (answer, sources) tuple."""
+    model = _make_model([
+        '<|tool_call_start|>semantic_search(query="budget")<|tool_call_end|>',
+        "The budget is $450k.",
+    ])
+    tools = FakeToolRegistry({"semantic_search": ("From budget.pdf:\n  - Budget: $450k", ["budget.pdf"])})
+    router = FakeRouter()
+
+    agent = Agent(model, tools, router)
+    answer, sources = agent.run("what is the budget?")
+
+    assert answer == "The budget is $450k."
+    assert "budget.pdf" in sources

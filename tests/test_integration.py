@@ -63,7 +63,7 @@ def test_filesystem_count_via_native_tool_call():
         ],
         files={"a.pdf": "pdf1", "b.pdf": "pdf2", "c.txt": "txt1"},
     )
-    answer = agent.run("how many PDFs?")
+    answer, sources = agent.run("how many PDFs?")
     assert "2" in answer
 
 
@@ -78,7 +78,7 @@ def test_filesystem_count_via_fallback_router():
         ],
         files={"a.pdf": "pdf1", "b.pdf": "pdf2", "c.txt": "txt1"},
     )
-    answer = agent.run("how many PDF files?")
+    answer, sources = agent.run("how many PDF files?")
     assert "2" in answer
 
 
@@ -108,7 +108,7 @@ def test_semantic_search_with_facts():
         ],
         search_results=results,
     )
-    answer = agent.run("what is the budget?")
+    answer, sources = agent.run("what is the budget?")
     assert answer is not None
     assert "450,000" in answer
 
@@ -122,7 +122,7 @@ def test_directory_tree():
         ],
         files={"docs/a.pdf": "pdf", "docs/b.txt": "txt"},
     )
-    answer = agent.run("what is the folder structure?")
+    answer, sources = agent.run("what is the folder structure?")
     assert answer is not None
 
 
@@ -143,7 +143,7 @@ def test_conversation_follow_up():
         {"role": "user", "content": "find invoices"},
         {"role": "assistant", "content": "Found 2 invoices."},
     ]
-    answer = agent.run("aren't there more?", history=history)
+    answer, sources = agent.run("aren't there more?", history=history)
     # Verify history was passed — check model received history messages
     call_args = model.generate.call_args_list[0]
     messages = call_args[0][0] if call_args[0] else call_args.kwargs.get("messages", [])
@@ -161,7 +161,7 @@ def test_grep_files():
         ],
         files={"invoice_001.pdf": "inv1", "invoice_002.pdf": "inv2", "readme.txt": "readme"},
     )
-    answer = agent.run("find invoice files")
+    answer, sources = agent.run("find invoice files")
     assert "invoice" in answer.lower()
 
 
@@ -200,5 +200,5 @@ def test_filename_fallback_finds_file_by_name():
     searcher.file_reader = FileReader()
     searcher.toolbox = agent.tools.toolbox
 
-    answer = agent.run("any macbook invoice?")
+    answer, sources = agent.run("any macbook invoice?")
     assert "456" in answer or "MacBook" in answer

@@ -33,6 +33,7 @@ export interface ProgressData {
 
 export interface ResultData {
   text?: string;
+  sources?: string[];
   status?: string;
   indexName?: string;
   indexes?: string[];

@@ -9,6 +9,7 @@ Protocol:
     Response: {"id": int|null, "type": str, "data": dict}
 """
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -35,9 +36,16 @@ def format_response(req_id, resp_type: str, data: dict) -> str:
     return json.dumps({"id": req_id, "type": resp_type, "data": data})
 
 
+import threading
+
+_send_lock = threading.Lock()
+
+
 def send(req_id, resp_type: str, data: dict):
-    """Write a single NDJSON line to stdout."""
-    print(format_response(req_id, resp_type, data), flush=True)
+    """Write a single NDJSON line to stdout (thread-safe)."""
+    line = format_response(req_id, resp_type, data)
+    with _send_lock:
+        print(line, flush=True)
 
 
 class Server:
@@ -45,7 +53,7 @@ class Server:
 
     def __init__(self):
         self.state = "not_initialized"
-        self.debug = False
+        self.debug = os.environ.get("MANOLE_DEBUG", "1") == "1"
         self.running = True
         self.start_time = time.time()
 
@@ -136,6 +144,9 @@ class Server:
         for entry in self.directories.values():
             if "agent" in entry:
                 entry["agent"].debug = self.debug
+                entry["agent"].tools.debug = self.debug
+                if hasattr(entry["agent"].tools, "toolbox"):
+                    entry["agent"].tools.toolbox.debug = self.debug
             if "searcher" in entry:
                 entry["searcher"].debug = self.debug
         if self.rewriter:
@@ -175,6 +186,7 @@ class Server:
             self.model.load()
             self._log("Model loaded.")
 
+        send(None, "status", {"state": "indexing"})
         send(None, "directory_update", {"directoryId": dir_id, "state": "indexing"})
         self._log(f"Indexing {data_dir_path}...")
 
@@ -192,18 +204,19 @@ class Server:
         # Wire components
         leann_searcher = LeannSearcher(index_path, enable_warmup=True)
         file_reader = FileReader()
-        toolbox = ToolBox(str(data_dir_path))
+        toolbox = ToolBox(str(data_dir_path), debug=self.debug)
         searcher = Searcher(
             leann_searcher, self.model,
             file_reader=file_reader, toolbox=toolbox,
             debug=self.debug,
         )
-        tool_registry = ToolRegistry(searcher, toolbox)
+        tool_registry = ToolRegistry(searcher, toolbox, debug=self.debug)
 
+        _debug_ref = self
         class RouterWrapper:
             @staticmethod
             def route(query, intent=None):
-                return route(query, intent=intent)
+                return route(query, intent=intent, debug=_debug_ref.debug)
 
         self.rewriter = QueryRewriter(self.model, debug=self.debug)
         agent = Agent(
@@ -236,20 +249,54 @@ class Server:
             "stats": stats,
         })
 
-        # Generate summary (may be slow) and send as a follow-up update
-        try:
-            self._log(f"Generating summary for {dir_id}...")
-            summary = self._generate_summary(dir_id)
-            self._log(f"Summary result: {repr(summary[:100]) if summary else '(empty)'}")
-            self.directories[dir_id]["summary"] = summary
-            if summary:
-                send(None, "directory_update", {
-                    "directoryId": dir_id, "state": "ready",
-                    "stats": stats, "summary": summary,
-                })
-                self._log(f"Sent directory_update with summary for {dir_id}")
-        except Exception as exc:
-            self._log(f"Summary generation failed: {exc}")
+        # Run summary generation + image captioning in background
+        # Both use self.model so they run sequentially in one thread
+        def _background_tasks():
+            # Summary generation
+            try:
+                self._log(f"Generating summary for {dir_id}...")
+                summary = self._generate_summary(dir_id)
+                self._log(f"Summary result: {repr(summary[:100]) if summary else '(empty)'}")
+                self.directories[dir_id]["summary"] = summary
+                if summary:
+                    send(None, "directory_update", {
+                        "directoryId": dir_id, "state": "ready",
+                        "stats": stats, "summary": summary,
+                    })
+                    self._log(f"Sent directory_update with summary for {dir_id}")
+            except Exception as exc:
+                self._log(f"Summary generation failed: {exc}")
+
+            # Image captioning (after summary, since both use the model)
+            try:
+                from image_captioner import ImageCaptioner
+                from caption_cache import CaptionCache
+
+                cache = CaptionCache(str(data_dir_path / ".neurofind" / "captions"))
+                captioner = ImageCaptioner(
+                    model=self.model,
+                    index_path=index_path,
+                    cache=cache,
+                    data_dir=str(data_dir_path),
+                    send_fn=send,
+                    dir_id=dir_id,
+                    debug=self.debug,
+                )
+                captioner.run()
+                # Reload the in-memory index so searches include new captions
+                entry = self.directories.get(dir_id)
+                if entry and "searcher" in entry:
+                    from leann import LeannSearcher as _LS
+                    entry["searcher"].leann = _LS(index_path, enable_warmup=True)
+                    self._log("Reloaded LeannSearcher with caption embeddings.")
+                self._log("Image captioning complete.")
+            except Exception as exc:
+                self._log(f"Image captioning failed: {exc}")
+
+        thread = threading.Thread(target=_background_tasks, daemon=True)
+        thread.start()
+        self.directories[dir_id]["background_thread"] = thread
+
         return {
             "id": req_id, "type": "result",
             "data": {"status": "ready", "directoryId": dir_id, "indexName": index_name},
@@ -285,6 +332,9 @@ class Server:
 
         self._log(f"Query: {query[:80]}")
 
+        if self.debug:
+            print(f"  [SERVER] Query: {query!r} | dir={entry['path']} | history={len(entry['conversation_history'])} turns")
+
         step_count = [0]
 
         def on_token(text):
@@ -298,19 +348,36 @@ class Server:
         agent = entry["agent"]
         conversation_history = entry["conversation_history"]
 
-        response = agent.run(
+        response, sources = agent.run(
             query,
             history=conversation_history,
             on_token=on_token,
             on_step=on_step,
         )
 
+        # Resolve source filenames to absolute paths
+        base_dir = entry["path"]
+        resolved = []
+        for s in sources:
+            full = os.path.join(base_dir, s)
+            if os.path.exists(full):
+                resolved.append(full)
+            else:
+                found = False
+                for root, dirs, files in os.walk(base_dir):
+                    if s in files:
+                        resolved.append(os.path.join(root, s))
+                        found = True
+                        break
+                if not found:
+                    resolved.append(s)
+
         conversation_history.append({"role": "user", "content": query})
         conversation_history.append({"role": "assistant", "content": response})
         if len(conversation_history) > 10:
             entry["conversation_history"] = conversation_history[-10:]
 
-        return {"id": req_id, "type": "result", "data": {"text": response}}
+        return {"id": req_id, "type": "result", "data": {"text": response, "sources": resolved}}
 
     def _query_all(self, req_id, query: str) -> dict:
         """Run query against all ready directories and merge results."""
@@ -324,14 +391,31 @@ class Server:
             def on_token(text):
                 send(req_id, "token", {"text": text})
 
-            response = agent.run(query, history=conversation_history, on_token=on_token)
+            response, sources = agent.run(query, history=conversation_history, on_token=on_token)
+
+            # Resolve source filenames to absolute paths
+            base_dir = entry["path"]
+            resolved = []
+            for s in sources:
+                full = os.path.join(base_dir, s)
+                if os.path.exists(full):
+                    resolved.append(full)
+                else:
+                    found = False
+                    for root, dirs, files in os.walk(base_dir):
+                        if s in files:
+                            resolved.append(os.path.join(root, s))
+                            found = True
+                            break
+                    if not found:
+                        resolved.append(s)
 
             conversation_history.append({"role": "user", "content": query})
             conversation_history.append({"role": "assistant", "content": response})
             if len(conversation_history) > 10:
                 entry["conversation_history"] = conversation_history[-10:]
 
-            results.append({"directoryId": entry["dir_id"], "text": response})
+            results.append({"directoryId": entry["dir_id"], "text": response, "sources": resolved})
 
         return {"id": req_id, "type": "result", "data": {"results": results}}
 

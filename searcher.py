@@ -50,11 +50,13 @@ class Searcher:
         self.toolbox = toolbox
         self.debug = debug
 
-    def search_and_extract(self, query: str, top_k: int = 5) -> str:
-        """Search + map-filter in one call. Returns formatted facts string."""
+    def search_and_extract(self, query: str, top_k: int = 5) -> tuple[str, list[str]]:
+        """Search + map-filter in one call. Returns (formatted facts string, source filenames)."""
         chunks = self.leann.search(query, top_k=top_k)
+        if self.debug:
+            print(f"  [SEARCH] Vector search: {len(chunks)} chunks for query={query!r}")
         if not chunks:
-            return "No matching content found."
+            return ("No matching content found.", [])
 
         # Score pre-filter: drop chunks well below the top score
         if len(chunks) > 1:
@@ -74,10 +76,15 @@ class Searcher:
                 source = self._get_source(chunk)
                 facts_by_source.setdefault(source, []).extend(extracted["facts"])
 
+        if self.debug:
+            total_facts = sum(len(f) for f in facts_by_source.values())
+            print(f"  [SEARCH] Extracted: {total_facts} facts from {len(facts_by_source)} sources")
         if not facts_by_source:
+            if self.debug:
+                print("  [SEARCH] No facts extracted, triggering filename fallback")
             if self.file_reader and self.toolbox:
                 return self._filename_fallback(query)
-            return "Search returned results but none were relevant to the query."
+            return ("Search returned results but none were relevant to the query.", [])
 
         # Format for agent context
         lines = []
@@ -85,7 +92,8 @@ class Searcher:
             lines.append(f"From {source}:")
             for fact in facts:
                 lines.append(f"  - {fact}")
-        return "\n".join(lines)
+        sources = list(facts_by_source.keys())
+        return ("\n".join(lines), sources)
 
     def _extract_facts(self, query: str, chunk) -> dict:
         """Ask the model if this chunk is relevant and extract facts."""
@@ -108,7 +116,7 @@ class Searcher:
         if self.debug:
             print(f"  [SEARCH] {source}: raw={raw[:100]}")
 
-        parsed = parse_json(raw)
+        parsed = parse_json(raw, debug=self.debug)
         if parsed is None:
             if self.debug:
                 print(f"  [SEARCH] {source}: parse failed")
@@ -129,11 +137,11 @@ class Searcher:
 
         return {"facts": facts}
 
-    def _filename_fallback(self, query: str) -> str:
+    def _filename_fallback(self, query: str) -> tuple[str, list[str]]:
         """Grep filenames for query keywords, read matches, extract facts."""
         keywords = extract_keywords(query)
         if not keywords:
-            return "Search returned results but none were relevant to the query."
+            return ("Search returned results but none were relevant to the query.", [])
 
         if self.debug:
             print(f"  [SEARCH] Filename fallback: keywords={keywords}")
@@ -153,7 +161,7 @@ class Searcher:
         if not matching_paths:
             if self.debug:
                 print("  [SEARCH] Filename fallback: no matching files")
-            return "Search returned results but none were relevant to the query."
+            return ("Search returned results but none were relevant to the query.", [])
 
         if self.debug:
             print(f"  [SEARCH] Filename fallback: reading {[p.name for p in matching_paths]}")
@@ -185,14 +193,15 @@ class Searcher:
                 facts_by_source.setdefault(path.name, []).append(f"File found: {path.name}")
 
         if not facts_by_source:
-            return "Search returned results but none were relevant to the query."
+            return ("Search returned results but none were relevant to the query.", [])
 
         lines = []
         for source, facts in facts_by_source.items():
             lines.append(f"From {source}:")
             for fact in facts:
                 lines.append(f"  - {fact}")
-        return "\n".join(lines)
+        sources = list(facts_by_source.keys())
+        return ("\n".join(lines), sources)
 
     @staticmethod
     def _get_source(chunk) -> str:
