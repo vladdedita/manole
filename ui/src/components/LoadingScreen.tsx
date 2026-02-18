@@ -1,22 +1,56 @@
 import { motion } from "motion/react";
 
-const STEPS = [
-  { key: "loading_model", label: "Loading model" },
-  { key: "indexing", label: "Indexing files" },
-  { key: "ready", label: "Ready" },
-];
+export interface Step {
+  key: string;
+  label: string;
+}
 
-function stepIndex(state: string): number {
-  const idx = STEPS.findIndex((s) => s.key === state);
+export interface CaptioningProgress {
+  done: number;
+  total: number;
+}
+
+export function buildSteps(
+  backendState: string,
+  captioningProgress: CaptioningProgress | undefined
+): Step[] {
+  const steps: Step[] = [
+    { key: "loading_model", label: "Loading model" },
+    { key: "indexing", label: "Indexing files" },
+    { key: "summarizing", label: "Generating summary" },
+  ];
+
+  const captioningActive =
+    backendState === "captioning" || captioningProgress !== undefined;
+
+  if (captioningActive) {
+    const label = captioningProgress
+      ? `Captioning images (${captioningProgress.done}/${captioningProgress.total})`
+      : "Captioning images";
+    steps.push({ key: "captioning", label });
+  }
+
+  steps.push({ key: "ready", label: "Ready" });
+
+  return steps;
+}
+
+function stepIndex(steps: Step[], state: string): number {
+  const idx = steps.findIndex((s) => s.key === state);
   return idx === -1 ? 0 : idx;
 }
 
 interface LoadingScreenProps {
   backendState: string;
+  captioningProgress?: CaptioningProgress;
 }
 
-export function LoadingScreen({ backendState }: LoadingScreenProps) {
-  const current = stepIndex(backendState);
+export function LoadingScreen({
+  backendState,
+  captioningProgress,
+}: LoadingScreenProps) {
+  const steps = buildSteps(backendState, captioningProgress);
+  const current = stepIndex(steps, backendState);
 
   return (
     <motion.div
@@ -36,10 +70,10 @@ export function LoadingScreen({ backendState }: LoadingScreenProps) {
 
       {/* Step indicator */}
       <div className="flex flex-col gap-0">
-        {STEPS.map((step, i) => {
+        {steps.map((step, i) => {
           const isDone = i < current;
           const isActive = i === current;
-          const isLast = i === STEPS.length - 1;
+          const isLast = i === steps.length - 1;
 
           return (
             <div key={step.key} className="flex items-stretch">

@@ -23,7 +23,7 @@ export interface AgentStepData {
 }
 
 export interface StatusData {
-  state: "loading_model" | "indexing" | "ready" | "not_initialized";
+  state: "loading_model" | "indexing" | "summarizing" | "captioning" | "ready" | "not_initialized";
 }
 
 export interface ProgressData {
