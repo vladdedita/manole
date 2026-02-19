@@ -4,7 +4,7 @@ export interface Request {
   params: Record<string, unknown>;
 }
 
-export type ResponseType = "result" | "token" | "agent_step" | "error" | "status" | "progress" | "log" | "directory_update" | "file_graph";
+export type ResponseType = "result" | "token" | "agent_step" | "error" | "status" | "progress" | "log" | "directory_update" | "file_graph" | "setup_progress";
 
 export interface Response {
   id: number | null;
@@ -82,4 +82,14 @@ export interface FileEdge {
 export interface FileGraphData {
   nodes: FileNode[];
   edges: FileEdge[];
+}
+
+export interface SetupProgressData {
+  model_id: string;
+  filename?: string;
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  status: "downloading" | "verifying" | "complete" | "error" | "skipped";
+  verified?: boolean;
+  error?: string;
 }
