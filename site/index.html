@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manole — Local AI File Assistant</title>
+  <meta name="description" content="Index your documents, ask questions, explore file relationships. Runs entirely on your machine — no cloud, no API keys.">
+  <meta property="og:title" content="Manole — Local AI File Assistant">
+  <meta property="og:description" content="Semantic search, file graph, image captioning. All local, all private.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="logo.png">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Silkscreen:wght@400;700&display=swap');
+
+    :root {
+      --bg-deep: #0a0a14;
+      --bg-mid: #12121f;
+      --bg-surface: #1a1a2e;
+      --cyan: #4ecdc4;
+      --cyan-glow: rgba(78, 205, 196, 0.3);
+      --cyan-dim: rgba(78, 205, 196, 0.08);
+      --orb-blue: #5dade2;
+      --text-primary: #e8e8f0;
+      --text-muted: #8888a0;
+      --text-dim: #55556a;
+      --amber: #d4a843;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* Subtle grid background */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(78, 205, 196, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(78, 205, 196, 0.02) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 80px 24px 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Logo ── */
+    .logo-wrap {
+      position: relative;
+      margin-bottom: 48px;
+    }
+
+    .logo-wrap img {
+      width: 128px;
+      height: 128px;
+      border-radius: 20px;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 40px var(--cyan-glow)) drop-shadow(0 0 80px rgba(78, 205, 196, 0.12));
+      transition: filter 0.4s ease;
+    }
+
+    .logo-wrap:hover img {
+      filter: drop-shadow(0 0 50px rgba(78, 205, 196, 0.5)) drop-shadow(0 0 100px rgba(78, 205, 196, 0.2));
+    }
+
+    .logo-wrap::after {
+      content: '';
+      position: absolute;
+      bottom: -16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80px;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+      border-radius: 2px;
+    }
+
+    /* ── Title ── */
+    .title {
+      font-family: 'Silkscreen', cursive;
+      font-size: 2.8rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-bottom: 12px;
+      text-align: center;
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-transform: lowercase;
+    }
+
+    .subtitle {
+      font-size: 0.85rem;
+      font-weight: 300;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.6;
+      max-width: 480px;
+      margin-bottom: 56px;
+    }
+
+    .subtitle strong {
+      color: var(--cyan);
+      font-weight: 500;
+    }
+
+    /* ── Features ── */
+    .features {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      background: var(--bg-surface);
+      border: 1px solid rgba(78, 205, 196, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 48px;
+    }
+
+    .feature {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      padding: 16px 20px;
+      background: var(--bg-mid);
+      transition: background 0.2s ease;
+    }
+
+    .feature:hover {
+      background: var(--bg-surface);
+    }
+
+    .feature-marker {
+      color: var(--text-dim);
+      font-size: 0.7rem;
+      flex-shrink: 0;
+      width: 16px;
+      text-align: right;
+      user-select: none;
+    }
+
+    .feature-name {
+      color: var(--cyan);
+      font-weight: 500;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .feature-desc {
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      font-weight: 300;
+    }
+
+    /* ── Terminal block ── */
+    .terminal {
+      width: 100%;
+      background: var(--bg-mid);
+      border: 1px solid rgba(78, 205, 196, 0.1);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 48px;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid rgba(78, 205, 196, 0.06);
+    }
+
+    .terminal-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .terminal-dot:nth-child(1) { background: #ff5f56; }
+    .terminal-dot:nth-child(2) { background: #ffbd2e; }
+    .terminal-dot:nth-child(3) { background: #27c93f; }
+
+    .terminal-body {
+      padding: 20px 20px;
+      font-size: 0.82rem;
+      line-height: 1.8;
+    }
+
+    .terminal-line {
+      display: flex;
+      gap: 8px;
+    }
+
+    .terminal-prompt {
+      color: var(--cyan);
+      user-select: none;
+    }
+
+    .terminal-cmd {
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+
+    .terminal-comment {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* ── Badges ── */
+    .badges {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 56px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border: 1px solid rgba(78, 205, 196, 0.1);
+      border-radius: 4px;
+      background: var(--bg-mid);
+    }
+
+    .badge-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan-glow);
+    }
+
+    /* ── CTA ── */
+    .cta-row {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 80px;
+    }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 500;
+      text-decoration: none;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .cta-primary {
+      background: var(--cyan);
+      color: var(--bg-deep);
+      border: 1px solid var(--cyan);
+    }
+
+    .cta-primary:hover {
+      background: transparent;
+      color: var(--cyan);
+      box-shadow: 0 0 20px var(--cyan-glow);
+    }
+
+    .cta-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid rgba(136, 136, 160, 0.2);
+    }
+
+    .cta-ghost:hover {
+      color: var(--text-primary);
+      border-color: rgba(136, 136, 160, 0.4);
+    }
+
+    /* ── Footer ── */
+    .footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 0.68rem;
+    }
+
+    .footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer a:hover {
+      color: var(--cyan);
+    }
+
+    .footer-sep {
+      color: var(--text-dim);
+    }
+
+    /* ── Animation ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .logo-wrap { animation: fadeUp 0.6s ease both; animation-delay: 0.1s; }
+    .title { animation: fadeUp 0.6s ease both; animation-delay: 0.2s; }
+    .subtitle { animation: fadeUp 0.6s ease both; animation-delay: 0.3s; }
+    .features { animation: fadeUp 0.6s ease both; animation-delay: 0.4s; }
+    .terminal { animation: fadeUp 0.6s ease both; animation-delay: 0.5s; }
+    .badges { animation: fadeUp 0.6s ease both; animation-delay: 0.55s; }
+    .cta-row { animation: fadeUp 0.6s ease both; animation-delay: 0.6s; }
+    .footer { animation: fadeUp 0.6s ease both; animation-delay: 0.65s; }
+
+    /* ── Responsive ── */
+    @media (max-width: 540px) {
+      .page { padding: 48px 16px 40px; }
+      .title { font-size: 1.8rem; }
+      .feature { flex-wrap: wrap; gap: 4px 12px; padding: 12px 16px; }
+      .feature-desc { flex-basis: 100%; padding-left: 32px; }
+      .cta-row { flex-direction: column; width: 100%; }
+      .cta { width: 100%; justify-content: center; }
+      .badges { flex-wrap: wrap; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="logo-wrap">
+      <img src="logo.png" alt="Manole" width="128" height="128">
+    </div>
+
+    <h1 class="title">manole</h1>
+    <p class="subtitle">
+      Local AI file assistant. Index your documents, ask questions,
+      explore relationships on an interactive graph.
+      <strong>No cloud. No API keys. No data leaves your disk.</strong>
+    </p>
+
+    <div class="features">
+      <div class="feature">
+        <span class="feature-marker">01</span>
+        <span class="feature-name">semantic search</span>
+        <span class="feature-desc">ask natural language questions across PDFs, text, images</span>
+      </div>
+      <div class="feature">
+        <span class="feature-marker">02</span>
+        <span class="feature-name">file graph</span>
+        <span class="feature-desc">interactive map of document relationships and clusters</span>
+      </div>
+      <div class="feature">
+        <span class="feature-marker">03</span>
+        <span class="feature-name">vision</span>
+        <span class="feature-desc">auto-caption images with local Moondream2 model</span>
+      </div>
+      <div class="feature">
+        <span class="feature-marker">04</span>
+        <span class="feature-name">offline</span>
+        <span class="feature-desc">models download once, then fully self-contained</span>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span>
+        <span class="terminal-dot"></span>
+        <span class="terminal-dot"></span>
+      </div>
+      <div class="terminal-body">
+        <div class="terminal-line">
+          <span class="terminal-prompt">$</span>
+          <span class="terminal-cmd">git clone https://github.com/vladdedita/manole.git</span>
+        </div>
+        <div class="terminal-line">
+          <span class="terminal-prompt">$</span>
+          <span class="terminal-cmd">cd manole && ./run.sh</span>
+        </div>
+        <div class="terminal-line">
+          <span class="terminal-comment"># installs deps, downloads models, launches app</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="badges">
+      <span class="badge"><span class="badge-dot"></span> Python + Electron</span>
+      <span class="badge"><span class="badge-dot"></span> GGUF models</span>
+      <span class="badge"><span class="badge-dot"></span> macOS &amp; Linux</span>
+    </div>
+
+    <div class="cta-row">
+      <a class="cta cta-primary" href="https://github.com/vladdedita/manole">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <a class="cta cta-ghost" href="https://github.com/vladdedita/manole#readme">
+        Docs
+      </a>
+    </div>
+
+    <div class="footer">
+      <span>Built by</span>
+      <a href="https://github.com/vladdedita">vladdedita</a>
+      <span class="footer-sep">/</span>
+      <span>Electron + Python + llama.cpp</span>
+    </div>
+
+  </div>
+</body>
+</html>
