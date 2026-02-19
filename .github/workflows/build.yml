@@ -54,9 +54,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libopenblas-dev cmake
 
       - name: Install Python dependencies
-        run: uv sync
-        env:
-          CMAKE_ARGS: ${{ runner.os == 'macOS' && '-DGGML_METAL=on' || '' }}
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            OMP_PREFIX=$(brew --prefix libomp)
+            export CMAKE_ARGS="-DGGML_METAL=on -DOpenMP_C_FLAGS=-Xpreprocessor -fopenmp -I${OMP_PREFIX}/include -DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_FLAGS=-Xpreprocessor -fopenmp -I${OMP_PREFIX}/include -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=${OMP_PREFIX}/lib/libomp.dylib"
+            export LDFLAGS="-L${OMP_PREFIX}/lib"
+            export CPPFLAGS="-I${OMP_PREFIX}/include"
+          fi
+          uv sync
 
       - name: Build manole-server with PyInstaller
         run: uv run pyinstaller server.spec --noconfirm
