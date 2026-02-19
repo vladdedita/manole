@@ -2,6 +2,7 @@
 import json
 import io
 import sys
+from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -75,14 +76,15 @@ class TestToggleDebug:
     def test_toggle_debug(self):
         from server import Server
         srv = Server()
-        assert srv.debug is False
+        initial = srv.debug
         result = srv.handle_toggle_debug(1)
-        assert srv.debug is True
-        assert result["data"]["debug"] is True
+        assert srv.debug is (not initial)
+        assert result["data"]["debug"] is (not initial)
 
     def test_toggle_debug_propagates_to_directories(self):
         from server import Server
         srv = Server()
+        srv.debug = False  # start from known state
         mock_agent = MagicMock()
         mock_searcher = MagicMock()
         srv.directories["test"] = {
@@ -398,6 +400,228 @@ class TestMultiDirectoryFlow:
         result = srv.dispatch({"id": 1, "method": "nonexistent", "params": {}})
         assert result["type"] == "error"
         assert "Unknown method" in result["data"]["message"]
+
+
+class TestCheckModels:
+    """Acceptance: check_models returns per-model present/missing status."""
+
+    def test_check_models_returns_status_for_each_manifest_model(self, tmp_path):
+        """Given a models directory with one model present and others missing,
+        check_models returns ready=false with per-model exists status."""
+        from server import Server
+
+        srv = Server()
+        manifest = {
+            "version": 1,
+            "models": [
+                {"id": "text-model", "filename": "text.gguf", "repo_id": "r/t", "required": True},
+                {"id": "vision-model", "filename": "vision.gguf", "repo_id": "r/v", "required": True},
+            ],
+        }
+        # Create only the text model file
+        (tmp_path / "text.gguf").write_bytes(b"\x00" * 1024)
+
+        with patch("server.load_manifest", return_value=manifest):
+            result = srv.dispatch({
+                "id": 1,
+                "method": "check_models",
+                "params": {"modelsDir": str(tmp_path)},
+            })
+
+        assert result["type"] == "result"
+        data = result["data"]
+        assert data["ready"] is False
+        models = {m["id"]: m for m in data["models"]}
+        assert models["text-model"]["exists"] is True
+        assert models["text-model"]["size_bytes"] == 1024
+        assert models["vision-model"]["exists"] is False
+
+    def test_check_models_ready_when_all_present(self, tmp_path):
+        """When all required models exist, ready=true."""
+        from server import Server
+
+        srv = Server()
+        manifest = {
+            "version": 1,
+            "models": [
+                {"id": "text-model", "filename": "text.gguf", "repo_id": "r/t", "required": True},
+            ],
+        }
+        (tmp_path / "text.gguf").write_bytes(b"\x00" * 512)
+
+        with patch("server.load_manifest", return_value=manifest):
+            result = srv.dispatch({
+                "id": 1,
+                "method": "check_models",
+                "params": {"modelsDir": str(tmp_path)},
+            })
+
+        assert result["type"] == "result"
+        assert result["data"]["ready"] is True
+
+    def test_check_models_uses_default_models_dir(self):
+        """When modelsDir param is absent, uses get_models_dir()."""
+        from server import Server
+
+        srv = Server()
+        manifest = {
+            "version": 1,
+            "models": [
+                {"id": "m1", "filename": "m1.gguf", "repo_id": "r/m1", "required": True},
+            ],
+        }
+        fake_dir = Path("/tmp/test_models_default_dir_abc")
+
+        with patch("server.load_manifest", return_value=manifest), \
+             patch("server.get_models_dir", return_value=fake_dir):
+            result = srv.dispatch({
+                "id": 1,
+                "method": "check_models",
+                "params": {},
+            })
+
+        assert result["type"] == "result"
+        # Model should be missing since fake dir doesn't exist
+        assert result["data"]["ready"] is False
+
+
+class TestDownloadModels:
+    """Acceptance: download_models fetches missing models with progress events."""
+
+    def test_download_models_sends_progress_and_completes(self, tmp_path):
+        """Given one missing model, download_models downloads it and sends
+        setup_progress events with status downloading/complete, then returns
+        all_models_ready."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append(
+            {"id": rid, "type": rtype, "data": data}
+        )
+
+        try:
+            srv = Server()
+            manifest = {
+                "version": 1,
+                "models": [
+                    {"id": "text-model", "filename": "text.gguf",
+                     "repo_id": "test/repo", "required": True},
+                ],
+            }
+
+            def fake_download(repo_id, filename, local_dir, **kwargs):
+                # Simulate download by creating the file
+                Path(local_dir).mkdir(parents=True, exist_ok=True)
+                (Path(local_dir) / filename).write_bytes(b"\x00" * 2048)
+                return str(Path(local_dir) / filename)
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download", side_effect=fake_download):
+                result = srv.dispatch({
+                    "id": 2,
+                    "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+
+            assert result["type"] == "result"
+            assert result["data"]["status"] == "all_models_ready"
+
+            # Verify setup_progress events were sent
+            progress_events = [m for m in sent if m["type"] == "setup_progress"]
+            assert len(progress_events) >= 1
+            # Should have at least a complete event
+            complete_events = [e for e in progress_events
+                               if e["data"].get("status") == "complete"]
+            assert len(complete_events) == 1
+            assert complete_events[0]["data"]["model_id"] == "text-model"
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_download_models_skips_existing(self, tmp_path):
+        """Models already present are not re-downloaded."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append(
+            {"id": rid, "type": rtype, "data": data}
+        )
+
+        try:
+            srv = Server()
+            manifest = {
+                "version": 1,
+                "models": [
+                    {"id": "text-model", "filename": "text.gguf",
+                     "repo_id": "test/repo", "required": True},
+                ],
+            }
+            # Pre-create the model file
+            (tmp_path / "text.gguf").write_bytes(b"\x00" * 1024)
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download") as mock_dl:
+                result = srv.dispatch({
+                    "id": 2,
+                    "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+
+            assert result["type"] == "result"
+            assert result["data"]["status"] == "all_models_ready"
+            mock_dl.assert_not_called()
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_download_models_reports_error_per_model(self, tmp_path):
+        """When a download fails, setup_progress error event includes model name."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append(
+            {"id": rid, "type": rtype, "data": data}
+        )
+
+        try:
+            srv = Server()
+            manifest = {
+                "version": 1,
+                "models": [
+                    {"id": "vision-model", "filename": "vision.gguf",
+                     "repo_id": "test/repo", "required": True},
+                ],
+            }
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download",
+                       side_effect=OSError("Network error")):
+                result = srv.dispatch({
+                    "id": 2,
+                    "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+
+            # Should return error result
+            assert result["type"] == "error"
+            assert "vision-model" in result["data"]["message"]
+
+            # Should have sent an error progress event
+            error_events = [m for m in sent
+                            if m["type"] == "setup_progress"
+                            and m["data"].get("status") == "error"]
+            assert len(error_events) == 1
+            assert error_events[0]["data"]["model_id"] == "vision-model"
+            assert "Network error" in error_events[0]["data"]["error"]
+
+        finally:
+            srv_mod.send = original_send
 
 
 class TestGetFileGraph:

@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 
 from graph import build_file_graph
+from models import load_manifest, get_models_dir
+from huggingface_hub import hf_hub_download
 
 
 def make_dir_id(path: str) -> str:
@@ -44,6 +46,11 @@ _send_lock = threading.Lock()
 def send(req_id, resp_type: str, data: dict):
     """Write a single NDJSON line to stdout (thread-safe)."""
     line = format_response(req_id, resp_type, data)
+    # Debug: log protocol messages to stderr so they appear in Python output
+    import sys as _sys
+    _data_preview = str(data)[:120]
+    _sys.stderr.write(f"  [SEND] id={req_id} type={resp_type} data={_data_preview}\n")
+    _sys.stderr.flush()
     with _send_lock:
         print(line, flush=True)
 
@@ -53,7 +60,7 @@ class Server:
 
     def __init__(self):
         self.state = "not_initialized"
-        self.debug = os.environ.get("MANOLE_DEBUG", "1") == "1"
+        self.debug = True
         self.running = True
         self.start_time = time.time()
 
@@ -241,13 +248,21 @@ class Server:
             "conversation_history": [],
         }
 
-        # --- Inline summary generation ---
+        # --- Inline summary generation (cached to disk) ---
         summary = ""
+        summary_path = data_dir_path / ".neurofind" / "summary.txt"
         try:
-            send(None, "status", {"state": "summarizing"})
-            self._log(f"Generating summary for {dir_id}...")
-            summary = self._generate_summary(dir_id)
-            self._log(f"Summary result: {repr(summary[:100]) if summary else '(empty)'}")
+            if summary_path.exists():
+                summary = summary_path.read_text(encoding="utf-8").strip()
+                self._log(f"Loaded cached summary for {dir_id}")
+            else:
+                send(None, "status", {"state": "summarizing"})
+                self._log(f"Generating summary for {dir_id}...")
+                summary = self._generate_summary(dir_id)
+                self._log(f"Summary result: {repr(summary[:100]) if summary else '(empty)'}")
+                if summary:
+                    summary_path.parent.mkdir(parents=True, exist_ok=True)
+                    summary_path.write_text(summary, encoding="utf-8")
             self.directories[dir_id]["summary"] = summary
         except Exception as exc:
             self._log(f"Summary generation failed: {exc}")
@@ -282,6 +297,7 @@ class Server:
         self.state = "ready"
         self._log("All components wired. Ready.")
 
+        send(None, "status", {"state": "ready"})
         send(None, "directory_update", {
             "directoryId": dir_id, "state": "ready",
             "stats": stats, "summary": summary,
@@ -428,6 +444,11 @@ class Server:
         # Clear cached file graph so it's recomputed after reindex
         self.directories[dir_id].pop("file_graph", None)
         stored_path = self.directories[dir_id]["path"]
+        # Invalidate cached summary so it's regenerated
+        summary_path = Path(stored_path) / ".neurofind" / "summary.txt"
+        if summary_path.exists():
+            summary_path.unlink()
+            self._log(f"Cleared cached summary for {dir_id}")
         return self.handle_init(req_id, {"dataDir": stored_path})
 
     def handle_list_indexes(self, req_id) -> dict:
@@ -465,6 +486,90 @@ class Server:
 
         return {"id": req_id, "type": "result", "data": graph}
 
+    def handle_check_models(self, req_id, params: dict) -> dict:
+        """Check which models are present/missing in the models directory."""
+        models_dir_str = params.get("modelsDir")
+        models_dir = Path(models_dir_str) if models_dir_str else get_models_dir()
+
+        manifest = load_manifest()
+        model_statuses = []
+        all_present = True
+
+        for model in manifest["models"]:
+            model_path = models_dir / model["filename"]
+            exists = model_path.is_file()
+            size_bytes = model_path.stat().st_size if exists else 0
+            if not exists and model.get("required", False):
+                all_present = False
+            model_statuses.append({
+                "id": model["id"],
+                "filename": model["filename"],
+                "exists": exists,
+                "size_bytes": size_bytes,
+            })
+
+        return {
+            "id": req_id,
+            "type": "result",
+            "data": {"ready": all_present, "models": model_statuses},
+        }
+
+    def handle_download_models(self, req_id, params: dict) -> dict:
+        """Download missing models with setup_progress NDJSON events."""
+        models_dir_str = params.get("modelsDir")
+        models_dir = Path(models_dir_str) if models_dir_str else get_models_dir()
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        manifest = load_manifest()
+
+        for model in manifest["models"]:
+            if not model.get("required", False):
+                continue
+
+            model_path = models_dir / model["filename"]
+            if model_path.is_file():
+                continue
+
+            model_id = model["id"]
+            filename = model["filename"]
+            repo_id = model["repo_id"]
+
+            send(None, "setup_progress", {
+                "model_id": model_id,
+                "filename": filename,
+                "status": "downloading",
+            })
+
+            try:
+                hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename,
+                    local_dir=str(models_dir),
+                )
+                send(None, "setup_progress", {
+                    "model_id": model_id,
+                    "filename": filename,
+                    "status": "complete",
+                })
+            except Exception as exc:
+                send(None, "setup_progress", {
+                    "model_id": model_id,
+                    "filename": filename,
+                    "status": "error",
+                    "error": str(exc),
+                })
+                return {
+                    "id": req_id,
+                    "type": "error",
+                    "data": {"message": f"Failed to download {model_id}: {exc}"},
+                }
+
+        return {
+            "id": req_id,
+            "type": "result",
+            "data": {"status": "all_models_ready"},
+        }
+
     def dispatch(self, req: dict):
         """Route a parsed request to the appropriate handler."""
         req_id = req.get("id")
@@ -481,6 +586,8 @@ class Server:
             "remove_directory": lambda: self.handle_remove_directory(req_id, params),
             "reindex": lambda: self.handle_reindex(req_id, params),
             "getFileGraph": lambda: self.handle_get_file_graph(req_id, params),
+            "check_models": lambda: self.handle_check_models(req_id, params),
+            "download_models": lambda: self.handle_download_models(req_id, params),
         }
 
         handler = handlers.get(method)
