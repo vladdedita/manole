@@ -1,18 +1,22 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useReducer, useState, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useChat } from "./hooks/useChat";
-import type { Response, DirectoryStats } from "./lib/protocol";
+import type { Response, DirectoryStats, SetupProgressData } from "./lib/protocol";
 import { ChatPanel } from "./components/ChatPanel";
 import { FileGraphPanel } from "./components/FileGraphPanel";
 import { StatusBar } from "./components/StatusBar";
 import { DevPanel } from "./components/DevPanel";
 import { SidePanel, type DirectoryEntry } from "./components/SidePanel";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { SetupScreen } from "./components/SetupScreen";
 import { useFileGraph } from "./hooks/useFileGraph";
+import { appSetupReducer, type AppSetupAction } from "./lib/appSetupReducer";
 
 export default function App() {
   const { messages, isLoading, error, backendState, logs, sendMessage, initBackend, resetBackendState, clearChat, subscribe, send } =
     useChat();
+
+  const [setupState, dispatchSetup] = useReducer(appSetupReducer, undefined, () => appSetupReducer(undefined, { type: "init" }));
 
   const [directories, setDirectories] = useState<DirectoryEntry[]>([]);
   const [activeDirectoryId, setActiveDirectoryId] = useState<string | null>(null);
@@ -67,6 +71,18 @@ export default function App() {
               : d
           )
         );
+      } else if ((response.type as string) === "setup_state") {
+        // Phase transition event from ModelSetupManager
+        dispatchSetup({
+          type: "setup_state",
+          data: response.data as { state: "checking" | "needed" | "complete" | "skipped"; models?: Array<{ model_id: string; name?: string; filename?: string; total_bytes?: number; status?: string }> },
+        });
+      } else if (response.type === "setup_progress") {
+        // Per-model download progress event
+        dispatchSetup({
+          type: "setup_progress",
+          data: response.data as unknown as SetupProgressData,
+        });
       }
     });
   }, [subscribe]);
@@ -275,83 +291,101 @@ export default function App() {
         </div>
       </header>
 
-      {/* Body: sidebar + main content side by side */}
-      <div className="flex flex-1 min-h-0">
-        {/* Side panel — inline, takes real space */}
-        <SidePanel
-          open={sidePanelOpen}
-          directories={directories}
-          activeDirectoryId={activeDirectoryId}
-          searchAll={searchAll}
-          onSelectDirectory={setActiveDirectoryId}
-          onAddFolder={handleOpenFolder}
-          onReindex={handleReindex}
-          onRemove={handleRemove}
-          onToggleSearchAll={() => setSearchAll((v) => !v)}
-        />
-
-        {/* Main content */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <AnimatePresence mode="wait">
-            {!hasDirectories ? (
-              <ChatPanel
-                key="welcome"
-                messages={[]}
-                isLoading={false}
-                error={initError}
-                onSend={handleSend}
-                onOpenFolder={handleOpenFolder}
-              />
-            ) : isInitializing ? (
-              <LoadingScreen key="loading" backendState={backendState} captioningProgress={activeDirectory?.captioningProgress} />
-            ) : isReady && mode === "map" ? (
-              <motion.div
-                key="map"
-                initial={{ opacity: 0, filter: "blur(4px)" }}
-                animate={{ opacity: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, filter: "blur(4px)" }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                className="flex flex-col flex-1 min-h-0"
-              >
-                <FileGraphPanel
-                  graph={graph}
-                  isLoading={graphLoading}
-                  error={graphError}
-                  onFetchGraph={handleFetchGraph}
-                />
-              </motion.div>
-            ) : isReady ? (
-              <ChatPanel
-                key={`chat-${activeDirectoryId}`}
-                messages={messages}
-                isLoading={isLoading}
-                error={error}
-                onSend={handleSend}
-                onOpenFolder={handleOpenFolder}
-              />
-            ) : (
-              <ChatPanel
-                key="no-selection"
-                messages={[]}
-                isLoading={false}
-                error={activeDirectory?.error ?? null}
-                onSend={handleSend}
-                onOpenFolder={handleOpenFolder}
-              />
-            )}
-          </AnimatePresence>
+      {/* Body: setup phase or normal app */}
+      {setupState.appPhase === "checking" ? (
+        /* Blank loading state while check_models runs */
+        <div className="flex flex-1 min-h-0 items-center justify-center">
+          <span className="font-mono text-sm text-text-tertiary animate-pulse">Checking models...</span>
         </div>
-      </div>
+      ) : setupState.appPhase === "setup" ? (
+        /* Setup screen: model downloads in progress */
+        <div className="flex flex-1 min-h-0">
+          <SetupScreen
+            models={setupState.setupModels}
+            onComplete={() => dispatchSetup({ type: "setup_complete" })}
+          />
+        </div>
+      ) : (
+        /* Ready phase: normal app flow */
+        <>
+          <div className="flex flex-1 min-h-0">
+            {/* Side panel — inline, takes real space */}
+            <SidePanel
+              open={sidePanelOpen}
+              directories={directories}
+              activeDirectoryId={activeDirectoryId}
+              searchAll={searchAll}
+              onSelectDirectory={setActiveDirectoryId}
+              onAddFolder={handleOpenFolder}
+              onReindex={handleReindex}
+              onRemove={handleRemove}
+              onToggleSearchAll={() => setSearchAll((v) => !v)}
+            />
 
-      {/* Dev panel */}
-      <DevPanel
-        open={devPanelOpen}
-        onClose={() => setDevPanelOpen(false)}
-        logs={logs}
-      />
+            {/* Main content */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <AnimatePresence mode="wait">
+                {!hasDirectories ? (
+                  <ChatPanel
+                    key="welcome"
+                    messages={[]}
+                    isLoading={false}
+                    error={initError}
+                    onSend={handleSend}
+                    onOpenFolder={handleOpenFolder}
+                  />
+                ) : isInitializing ? (
+                  <LoadingScreen key="loading" backendState={backendState} captioningProgress={activeDirectory?.captioningProgress} />
+                ) : isReady && mode === "map" ? (
+                  <motion.div
+                    key="map"
+                    initial={{ opacity: 0, filter: "blur(4px)" }}
+                    animate={{ opacity: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, filter: "blur(4px)" }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    className="flex flex-col flex-1 min-h-0"
+                  >
+                    <FileGraphPanel
+                      graph={graph}
+                      isLoading={graphLoading}
+                      error={graphError}
+                      onFetchGraph={handleFetchGraph}
+                    />
+                  </motion.div>
+                ) : isReady ? (
+                  <ChatPanel
+                    key={`chat-${activeDirectoryId}`}
+                    messages={messages}
+                    isLoading={isLoading}
+                    error={error}
+                    onSend={handleSend}
+                    onOpenFolder={handleOpenFolder}
+                  />
+                ) : (
+                  <ChatPanel
+                    key="no-selection"
+                    messages={[]}
+                    isLoading={false}
+                    error={activeDirectory?.error ?? null}
+                    onSend={handleSend}
+                    onOpenFolder={handleOpenFolder}
+                  />
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
 
-      {/* Status bar */}
-      <StatusBar backendState={backendState} directory={activeDirectory?.path} />
+          {/* Dev panel */}
+          <DevPanel
+            open={devPanelOpen}
+            onClose={() => setDevPanelOpen(false)}
+            logs={logs}
+          />
+
+          {/* Status bar */}
+          <StatusBar backendState={backendState} directory={activeDirectory?.path} />
+        </>
+      )}
     </div>
   );
 }
