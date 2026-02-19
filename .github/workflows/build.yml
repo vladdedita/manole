@@ -45,8 +45,18 @@ jobs:
           key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
           restore-keys: uv-${{ runner.os }}-
 
+      - name: Install native build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libomp cmake
+
+      - name: Install native build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev cmake
+
       - name: Install Python dependencies
         run: uv sync
+        env:
+          CMAKE_ARGS: ${{ runner.os == 'macOS' && '-DGGML_METAL=on' || '' }}
 
       - name: Build manole-server with PyInstaller
         run: uv run pyinstaller server.spec --noconfirm
