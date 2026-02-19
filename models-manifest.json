@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "text-model",
+      "name": "LFM2.5-1.2B Instruct",
+      "filename": "LFM2.5-1.2B-Instruct-Q4_0.gguf",
+      "repo_id": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+      "required": true
+    },
+    {
+      "id": "vision-model",
+      "name": "Moondream2 Vision",
+      "filename": "moondream2-text-model-f16_ct-vicuna.gguf",
+      "repo_id": "ggml-org/moondream2-20250414-GGUF",
+      "required": true
+    },
+    {
+      "id": "vision-projector",
+      "name": "Moondream2 Projector",
+      "filename": "moondream2-mmproj-f16-20250414.gguf",
+      "repo_id": "ggml-org/moondream2-20250414-GGUF",
+      "required": true
+    }
+  ]
+}

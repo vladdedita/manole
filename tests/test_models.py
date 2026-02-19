@@ -1,7 +1,12 @@
 """Tests for ModelManager single-model interface."""
+import json
+import os
+import sys
+from pathlib import Path
+
 import pytest
-from unittest.mock import MagicMock
-from models import ModelManager
+from unittest.mock import MagicMock, patch
+from models import ModelManager, get_models_dir, load_manifest
 
 
 def _mock_chat_response(text: str) -> dict:
@@ -78,6 +83,82 @@ def test_default_model_path():
 def test_custom_model_path():
     mgr = ModelManager(model_path="/custom/path.gguf")
     assert mgr.model_path == "/custom/path.gguf"
+
+
+# --- Platform-aware path resolution ---
+
+
+class TestGetModelsDir:
+    """Test get_models_dir() returns correct path per platform and env."""
+
+    def test_dev_mode_uses_local_models_dir(self):
+        """When not frozen (dev mode), uses ./models/ relative to project."""
+        with patch.object(sys, "frozen", False, create=True):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("MANOLE_MODELS_DIR", None)
+                result = get_models_dir()
+        assert result == Path("models")
+
+    def test_env_var_overrides_platform_default(self):
+        """MANOLE_MODELS_DIR env var overrides any platform default."""
+        with patch.dict(os.environ, {"MANOLE_MODELS_DIR": "/custom/models"}):
+            with patch.object(sys, "frozen", True, create=True):
+                result = get_models_dir()
+        assert result == Path("/custom/models")
+
+    @pytest.mark.parametrize("platform,expected_suffix", [
+        ("darwin", "Library/Application Support/Manole/models"),
+        ("linux", ".local/share/manole/models"),
+    ])
+    def test_packaged_mode_platform_paths(self, platform, expected_suffix):
+        """Frozen/packaged mode resolves to platform-specific user data dir."""
+        with patch.object(sys, "frozen", True, create=True):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("MANOLE_MODELS_DIR", None)
+                with patch("models.sys.platform", platform):
+                    result = get_models_dir()
+        assert str(result).endswith(expected_suffix)
+
+
+class TestLoadManifest:
+    """Test manifest loading from models-manifest.json."""
+
+    def test_loads_manifest_with_expected_models(self):
+        """Manifest contains text-model, vision-model, vision-projector."""
+        manifest = load_manifest()
+        model_ids = [m["id"] for m in manifest["models"]]
+        assert "text-model" in model_ids
+        assert "vision-model" in model_ids
+        assert "vision-projector" in model_ids
+
+    def test_manifest_models_have_required_fields(self):
+        """Each model entry has id, filename, repo_id."""
+        manifest = load_manifest()
+        for model in manifest["models"]:
+            assert "id" in model
+            assert "filename" in model
+            assert "repo_id" in model
+
+
+class TestModelManagerManifestIntegration:
+    """ModelManager resolves paths from manifest, not hardcoded strings."""
+
+    def test_model_paths_use_manifest_filenames(self):
+        """ModelManager default paths contain filenames from manifest."""
+        manifest = load_manifest()
+        filenames = {m["id"]: m["filename"] for m in manifest["models"]}
+        mgr = ModelManager()
+        assert Path(mgr.model_path).name == filenames["text-model"]
+        assert Path(mgr.vision_model_path).name == filenames["vision-model"]
+        assert Path(mgr.mmproj_path).name == filenames["vision-projector"]
+
+    def test_model_paths_use_models_dir(self):
+        """ModelManager paths are rooted in get_models_dir()."""
+        mgr = ModelManager()
+        models_dir = get_models_dir()
+        assert Path(mgr.model_path).parent == models_dir
+        assert Path(mgr.vision_model_path).parent == models_dir
+        assert Path(mgr.mmproj_path).parent == models_dir
 
 
 def test_generate_stream_calls_on_token(mock_model):

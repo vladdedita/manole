@@ -1,7 +1,49 @@
 """ModelManager: text + vision GGUF models via llama-cpp-python."""
+import json
+import os
+import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
+
+
+def _manifest_path() -> Path:
+    """Return path to models-manifest.json adjacent to this module."""
+    return Path(__file__).parent / "models-manifest.json"
+
+
+def load_manifest() -> dict:
+    """Load and return the models manifest as a dict."""
+    with open(_manifest_path()) as f:
+        return json.load(f)
+
+
+def get_models_dir() -> Path:
+    """Resolve the models directory based on platform and runtime context.
+
+    Priority:
+    1. MANOLE_MODELS_DIR env var (always wins)
+    2. Dev mode (not frozen): ./models/ relative path
+    3. Packaged mode (frozen): platform-specific user data dir
+    """
+    env_override = os.environ.get("MANOLE_MODELS_DIR")
+    if env_override:
+        return Path(env_override)
+
+    if not getattr(sys, "frozen", False):
+        return Path("models")
+
+    # Packaged mode: platform-specific paths
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Manole" / "models"
+    else:
+        return Path.home() / ".local" / "share" / "manole" / "models"
+
+
+def _manifest_lookup() -> dict[str, dict]:
+    """Return manifest models keyed by id."""
+    manifest = load_manifest()
+    return {m["id"]: m for m in manifest["models"]}
 
 
 class ModelManager:
@@ -11,25 +53,44 @@ class ModelManager:
     llama-cpp-python is not thread-safe.
     """
 
-    DEFAULT_MODEL_PATH = "models/LFM2.5-1.2B-Instruct-Q4_0.gguf"
-    DEFAULT_VISION_MODEL_PATH = "models/moondream2-text-model-f16_ct-vicuna.gguf"
-    DEFAULT_MMPROJ_PATH = "models/moondream2-mmproj-f16-20250414.gguf"
-
     _lock = threading.Lock()
 
-    TEXT_REPO_ID = "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"
-    VL_REPO_ID = "ggml-org/moondream2-20250414-GGUF"
+    # Backward-compat class constants (sourced from manifest at import time)
+    _MANIFEST = _manifest_lookup()
+    TEXT_REPO_ID = _MANIFEST["text-model"]["repo_id"]
+    VL_REPO_ID = _MANIFEST["vision-model"]["repo_id"]
+    del _MANIFEST
 
     def __init__(self, model_path: str | None = None,
                  vision_model_path: str | None = None,
                  mmproj_path: str | None = None,
                  n_threads: int = 4):
-        self.model_path = model_path or self.DEFAULT_MODEL_PATH
-        self.vision_model_path = vision_model_path or self.DEFAULT_VISION_MODEL_PATH
-        self.mmproj_path = mmproj_path or self.DEFAULT_MMPROJ_PATH
+        manifest = _manifest_lookup()
+        models_dir = get_models_dir()
+
+        self.model_path = model_path or str(
+            models_dir / manifest["text-model"]["filename"]
+        )
+        self.vision_model_path = vision_model_path or str(
+            models_dir / manifest["vision-model"]["filename"]
+        )
+        self.mmproj_path = mmproj_path or str(
+            models_dir / manifest["vision-projector"]["filename"]
+        )
+
         self.n_threads = n_threads
         self.model = None
         self._vision_model = None
+
+    @property
+    def _repo_ids(self) -> dict[str, str]:
+        """Lazy-load repo IDs from manifest (supports __new__ bypass)."""
+        if not hasattr(self, "_repo_ids_cache"):
+            manifest = _manifest_lookup()
+            self._repo_ids_cache = {
+                m_id: m["repo_id"] for m_id, m in manifest.items()
+            }
+        return self._repo_ids_cache
 
     @staticmethod
     def _ensure_model(path: str, repo_id: str, filename: str) -> str:
@@ -47,10 +108,16 @@ class ModelManager:
             from llama_cpp import Llama
             from llama_cpp.llama_chat_format import MoondreamChatHandler
 
-            self._ensure_model(self.vision_model_path, self.VL_REPO_ID,
-                               Path(self.vision_model_path).name)
-            self._ensure_model(self.mmproj_path, self.VL_REPO_ID,
-                               Path(self.mmproj_path).name)
+            self._ensure_model(
+                self.vision_model_path,
+                self._repo_ids["vision-model"],
+                Path(self.vision_model_path).name,
+            )
+            self._ensure_model(
+                self.mmproj_path,
+                self._repo_ids["vision-projector"],
+                Path(self.mmproj_path).name,
+            )
 
             try:
                 chat_handler = MoondreamChatHandler(clip_model_path=self.mmproj_path)
@@ -89,8 +156,11 @@ class ModelManager:
 
     def load(self):
         from llama_cpp import Llama
-        self._ensure_model(self.model_path, self.TEXT_REPO_ID,
-                           Path(self.model_path).name)
+        self._ensure_model(
+            self.model_path,
+            self._repo_ids["text-model"],
+            Path(self.model_path).name,
+        )
         self.model = Llama(
             model_path=self.model_path,
             n_ctx=8192,
