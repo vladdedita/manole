@@ -1,42 +1,61 @@
-# NeuroFind
+# Manole
 
-Local AI file assistant. Indexes your documents, answers questions about them. Runs entirely on your machine — no cloud, no API keys, no data leaving your disk.
+Local AI file assistant. Index your documents, ask questions about them, explore file relationships on an interactive map. Runs entirely on your machine — no cloud, no API keys, no data leaving your disk.
+
+## Download
+
+Grab the latest installer from [**GitHub Releases**](../../releases/latest):
+
+- **macOS** — `.dmg` (Apple Silicon)
+- **Linux** — `.AppImage` (x86_64)
+
+On first launch, Manole downloads ~1.5 GB of language models. After that, it works fully offline.
+
+## Features
+
+- **Semantic search** — ask natural language questions about your documents. An agentic RAG pipeline retrieves relevant passages across PDFs, text files, images, and more.
+- **Interactive file map** — explore file relationships as a graph. See which documents reference each other, zoom into clusters, and navigate visually.
+- **Image captioning** — automatically describe images using a local vision model (Moondream2). Captions are indexed and searchable alongside text.
+- **Multi-directory indexing** — open multiple folders and search across all of them at once.
+- **Privacy-first** — everything runs on your machine. No cloud services, no API keys, no data exfiltration. Your files stay on your disk.
+- **Offline after setup** — models download once on first launch, then the app is fully self-contained.
 
 ## Architecture
 
 ```
-ui/ (Electron + React)
+Electron (React + Tailwind)
   ↕ NDJSON over stdio
 server.py (protocol adapter)
   ↕
 agent.py → tools.py → toolbox.py
   ↕           ↕
-models.py  searcher.py (LEANN vectors)
+models.py  searcher.py (LEANN vector search)
 ```
 
-**Python backend** — Agent loop orchestrator with 7 tools (semantic search, grep, file metadata, directory tree, etc.), ModelManager wrapping llama-cpp-python with a local GGUF model, LEANN vector search for document retrieval.
+**Python backend** — agentic RAG pipeline with 7 tools (semantic search, grep, file metadata, directory tree, etc.), two GGUF models (text + vision) via llama-cpp-python, LEANN vector index for document retrieval.
 
-**Electron UI** — React chat interface communicating with the Python backend over newline-delimited JSON (NDJSON) via stdio. No HTTP server, no ports.
+**Electron UI** — React chat interface + file graph visualization. Communicates with the Python backend over newline-delimited JSON (NDJSON) via stdio. No HTTP server, no ports.
 
-## Prerequisites
+## Development Setup
+
+### Prerequisites
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/) package manager
 - Node.js 20+
-- A GGUF model file (place in `models/`)
-
-## Setup
 
 ### Python backend
 
 ```bash
-# Install dependencies
 uv sync
 
-# Run tests
+# Download models (first time only, ~1.5 GB)
+# Models auto-download on first run, or place GGUF files manually in models/
+
+# Run tests (290 tests)
 uv run pytest tests/ -v
 
-# Start the CLI chat (no UI)
+# Start CLI chat (no UI needed)
 uv run python chat.py
 ```
 
@@ -44,92 +63,107 @@ uv run python chat.py
 
 ```bash
 cd ui
-
-# Install dependencies
 npm install
 
-# Development mode (hot reload)
+# Development mode (starts Electron + Python backend with hot reload)
 npm run dev
 
-# Production build
-npm run build
+# Run UI tests
+npx vitest run
 ```
 
-The dev server starts Electron with the Python backend as a child process. The UI communicates with it over stdin/stdout using NDJSON.
+### Quick start (recommended)
 
-## NDJSON Protocol
+```bash
+cd ui && npm run dev
+```
 
-The Electron app spawns `python server.py` and communicates via JSON lines:
-
-**Request:** `{"id": 1, "method": "init", "params": {"dataDir": "/path/to/docs"}}`
-
-**Response:** `{"id": 1, "type": "result", "data": {"state": "ready"}}`
-
-**Streaming tokens:** `{"id": 2, "type": "token", "data": {"text": "The"}}`
-
-Available methods: `ping`, `init`, `query`, `toggle_debug`, `shutdown`, `list_indexes`.
+This launches Electron, which spawns the Python backend as a child process. Open a folder from the UI to start indexing. If the packaged installer doesn't work on your machine, this is the reliable way to run Manole locally.
 
 ## Building for Distribution
 
-### 1. Freeze the Python backend
-
 ```bash
+# 1. Freeze the Python backend
 uv run pyinstaller server.spec --noconfirm
+
+# 2. Package the Electron app (macOS .dmg or Linux .AppImage)
+cd ui && npx electron-builder --config electron-builder.yml
 ```
 
-This creates `dist/manole-server`, a standalone binary with all Python dependencies bundled.
+The installer ships without models (~150 MB). On first launch, a setup screen downloads the required GGUF models from HuggingFace with resume support.
 
-### 2. Test the frozen binary
+## Running Tests
 
 ```bash
-echo '{"id": 0, "method": "ping"}' | ./dist/manole-server
-# Expected: {"id": 0, "type": "result", "data": {"state": "not_initialized", "uptime": 0.0}}
+# Python tests (290 tests, ~9s)
+uv run pytest tests/ -v
+
+# UI tests (13 tests)
+cd ui && npx vitest run
+
+# Single file
+uv run pytest tests/test_server.py -v
 ```
-
-### 3. Package the Electron app
-
-```bash
-cd ui
-npx electron-builder --config electron-builder.yml
-```
-
-This bundles the frozen Python binary, model files, and the Electron app into a platform-specific installer (`.dmg` on macOS, `.exe` on Windows, `.AppImage` on Linux).
-
-The `electron-builder.yml` config pulls `dist/manole-server` and `models/` into the app bundle as extra resources.
 
 ## Project Structure
 
 ```
 manole/
-├── agent.py          # Agent loop orchestrator
-├── models.py         # ModelManager (llama-cpp-python)
-├── searcher.py       # LEANN vector search
-├── tools.py          # ToolRegistry (7 tools)
-├── toolbox.py        # File system operations
-├── router.py         # Query routing
-├── rewriter.py       # Query rewriting
-├── parser.py         # Response parsing
-├── file_reader.py    # Document ingestion (docling)
-├── server.py         # NDJSON stdio adapter
-├── chat.py           # CLI chat interface
-├── server.spec       # PyInstaller build spec
-├── tests/            # Python tests (130 tests)
-├── ui/               # Electron React app
-│   ├── electron/     # Main + preload processes
-│   ├── src/          # React app (components, hooks, lib)
-│   └── electron-builder.yml
-└── docs/plans/       # Design docs
+  agent.py             # Agentic loop orchestrator
+  models.py            # ModelManager — text + vision GGUF models
+  searcher.py          # LEANN vector search wrapper
+  tools.py             # ToolRegistry (7 tools)
+  toolbox.py           # File system operations
+  router.py            # Query intent routing
+  rewriter.py          # Query rewriting
+  parser.py            # Response parsing
+  file_reader.py       # Document ingestion (docling)
+  image_captioner.py   # Vision model image captioning
+  graph.py             # File relationship graph builder
+  server.py            # NDJSON stdio protocol adapter
+  chat.py              # CLI chat interface
+  models-manifest.json # Model metadata (filenames, repos, sizes)
+  server.spec          # PyInstaller build spec
+  tests/               # Python tests
+  ui/                  # Electron React app
+    electron/          # Main process, Python bridge, setup manager
+    src/               # React components, hooks, lib
+    tests/             # UI tests (vitest)
+  docs/                # Design documentation (see below)
 ```
 
-## Running Tests
+## Documentation
 
-```bash
-# All Python tests
-uv run pytest tests/ -v
+The `docs/` directory contains the project's design history, organized by concern:
 
-# Specific test file
-uv run pytest tests/test_server.py -v
-
-# Build the UI (type checking)
-cd ui && npm run build
 ```
+docs/
+  plans/           # Chronological design docs (architecture, features)
+  feature/         # Feature implementation tracking (roadmaps, execution logs)
+  requirements/    # User stories and acceptance criteria
+  ux/              # UX journey maps and user flow designs
+  analysis/        # Root cause analyses and technical investigations
+  distill/         # Acceptance test scenarios
+```
+
+Key entry points:
+
+- **How the LLM pipeline works** — [`docs/architecture.md`](docs/architecture.md) — agent loop, tools, search, models, image captioning
+- **How the agent works** — `docs/plans/2026-02-15-agent-loop-design.md`
+- **Electron UI design** — `docs/plans/2026-02-16-electron-ui-design.md`
+- **Installer architecture** — `docs/feature/installer/design/architecture-design.md`
+- **Fast captioning investigation** — `docs/analysis/root-cause-analysis-slow-captioning.md`
+
+## NDJSON Protocol
+
+The Electron app spawns `python server.py` and communicates via JSON lines:
+
+```
+→ {"id": 1, "method": "init", "params": {"dataDir": "/path/to/docs"}}
+← {"id": null, "type": "status", "data": {"state": "loading_model"}}
+← {"id": null, "type": "status", "data": {"state": "indexing"}}
+← {"id": null, "type": "status", "data": {"state": "ready"}}
+← {"id": 1, "type": "result", "data": {"status": "ready", "directoryId": "docs"}}
+```
+
+Methods: `ping`, `init`, `query`, `check_models`, `download_models`, `toggle_debug`, `shutdown`, `list_indexes`, `reindex`, `remove_directory`, `getFileGraph`.

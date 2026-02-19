@@ -12,6 +12,19 @@ import { SetupScreen } from "./components/SetupScreen";
 import { useFileGraph } from "./hooks/useFileGraph";
 import { appSetupReducer, type AppSetupAction } from "./lib/appSetupReducer";
 
+const SAVED_DIRS_KEY = "manole:directories";
+
+function loadSavedDirectories(): { id: string; path: string }[] {
+  try {
+    const raw = localStorage.getItem(SAVED_DIRS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveDirectories(dirs: { id: string; path: string }[]) {
+  localStorage.setItem(SAVED_DIRS_KEY, JSON.stringify(dirs));
+}
+
 export default function App() {
   const { messages, isLoading, error, backendState, logs, sendMessage, initBackend, resetBackendState, clearChat, subscribe, send } =
     useChat();
@@ -39,8 +52,8 @@ export default function App() {
           summary?: string;
           error?: string;
         };
-        setDirectories((prev) =>
-          prev.map((d) =>
+        setDirectories((prev) => {
+          const updated = prev.map((d) =>
             d.id === data.directoryId
               ? {
                   ...d,
@@ -50,8 +63,13 @@ export default function App() {
                   ...(data.error ? { error: data.error } : {}),
                 }
               : d
-          )
-        );
+          );
+          if (data.state === "ready") {
+            const toSave = updated.filter((d) => d.state === "ready").map((d) => ({ id: d.id, path: d.path }));
+            saveDirectories(toSave);
+          }
+          return updated;
+        });
       } else if (response.type === "captioning_progress") {
         const data = response.data as {
           directoryId: string;
@@ -86,6 +104,25 @@ export default function App() {
       }
     });
   }, [subscribe]);
+
+  // Restore previously indexed directories on mount
+  useEffect(() => {
+    if (setupState.appPhase !== "ready") return;
+    const saved = loadSavedDirectories();
+    if (saved.length === 0) return;
+
+    const entries: DirectoryEntry[] = saved.map((s) => ({
+      id: s.id,
+      path: s.path,
+      state: "indexing" as const,
+    }));
+    setDirectories(entries);
+    setActiveDirectoryId(saved[0].id);
+
+    for (const s of saved) {
+      initBackend(s.path).catch(() => {});
+    }
+  }, [setupState.appPhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOpenFolder = useCallback(async () => {
     const result = await window.api.selectDirectory();
@@ -167,7 +204,11 @@ export default function App() {
   );
 
   const handleRemove = useCallback(async (dirId: string) => {
-    setDirectories((prev) => prev.filter((d) => d.id !== dirId));
+    setDirectories((prev) => {
+      const updated = prev.filter((d) => d.id !== dirId);
+      saveDirectories(updated.filter((d) => d.state === "ready").map((d) => ({ id: d.id, path: d.path })));
+      return updated;
+    });
     setActiveDirectoryId((prev) => (prev === dirId ? null : prev));
     try {
       await send("remove_directory", { directoryId: dirId });

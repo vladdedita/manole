@@ -44,8 +44,8 @@ describe("ModelSetupManager - acceptance", () => {
     // Must call check_models on Python
     expect(pythonSend).toHaveBeenCalledWith("check_models", expect.any(Object));
     // Must send "skipped" state to renderer (no setup needed)
-    expect(windowSend).toHaveBeenCalledWith("setup:state", "checking");
-    expect(windowSend).toHaveBeenCalledWith("setup:state", "skipped");
+    expect(windowSend).toHaveBeenCalledWith("python:message", { id: null, type: "setup_state", data: { state: "checking" } });
+    expect(windowSend).toHaveBeenCalledWith("python:message", { id: null, type: "setup_state", data: { state: "skipped" } });
     // Must NOT call download_models
     expect(pythonSend).not.toHaveBeenCalledWith("download_models", expect.any(Object));
   });
@@ -76,9 +76,9 @@ describe("ModelSetupManager - acceptance", () => {
     expect(pythonSend).toHaveBeenCalledWith("check_models", expect.any(Object));
     expect(pythonSend).toHaveBeenCalledWith("download_models", expect.any(Object));
     // Must send correct state transitions
-    expect(windowSend).toHaveBeenCalledWith("setup:state", "checking");
-    expect(windowSend).toHaveBeenCalledWith("setup:state", "needed");
-    expect(windowSend).toHaveBeenCalledWith("setup:state", "complete");
+    expect(windowSend).toHaveBeenCalledWith("python:message", { id: null, type: "setup_state", data: { state: "checking" } });
+    expect(windowSend).toHaveBeenCalledWith("python:message", { id: null, type: "setup_state", data: { state: "needed" } });
+    expect(windowSend).toHaveBeenCalledWith("python:message", { id: null, type: "setup_state", data: { state: "complete" } });
   });
 
   it("AC1: getModelsDir returns a path containing 'models'", async () => {

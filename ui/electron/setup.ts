@@ -53,7 +53,11 @@ export class ModelSetupManager {
   }
 
   private sendState(state: SetupState): void {
-    this.window.webContents.send("setup:state", state);
+    this.window.webContents.send("python:message", {
+      id: null,
+      type: "setup_state",
+      data: { state },
+    });
   }
 
   async checkAndDownload(): Promise<void> {

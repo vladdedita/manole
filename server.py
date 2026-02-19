@@ -24,6 +24,30 @@ def make_dir_id(path: str) -> str:
     return Path(path).name.replace(" ", "_").replace("/", "_")
 
 
+# Directories that should never be indexed
+_SENSITIVE_DIRS = {
+    "/etc", "/private/etc",
+}
+_SENSITIVE_HOME_DIRS = {
+    ".ssh", ".gnupg", ".aws", ".config", ".local/share/keyrings",
+    "Library/Keychains",
+}
+
+
+def _is_sensitive_directory(path: Path) -> bool:
+    """Return True if path points to a known sensitive system/user directory."""
+    path_str = str(path)
+    for d in _SENSITIVE_DIRS:
+        if path_str == d or path_str.startswith(d + "/"):
+            return True
+    home = Path.home()
+    for d in _SENSITIVE_HOME_DIRS:
+        sensitive = home / d
+        if path_str == str(sensitive) or path_str.startswith(str(sensitive) + "/"):
+            return True
+    return False
+
+
 def parse_request(line: str) -> dict | None:
     try:
         req = json.loads(line.strip())
@@ -43,14 +67,17 @@ import threading
 _send_lock = threading.Lock()
 
 
+_debug_protocol = os.environ.get("MANOLE_DEBUG", "0") == "1"
+
+
 def send(req_id, resp_type: str, data: dict):
     """Write a single NDJSON line to stdout (thread-safe)."""
     line = format_response(req_id, resp_type, data)
-    # Debug: log protocol messages to stderr so they appear in Python output
-    import sys as _sys
-    _data_preview = str(data)[:120]
-    _sys.stderr.write(f"  [SEND] id={req_id} type={resp_type} data={_data_preview}\n")
-    _sys.stderr.flush()
+    if _debug_protocol:
+        import sys as _sys
+        _data_preview = str(data)[:120]
+        _sys.stderr.write(f"  [SEND] id={req_id} type={resp_type} data={_data_preview}\n")
+        _sys.stderr.flush()
     with _send_lock:
         print(line, flush=True)
 
@@ -60,7 +87,7 @@ class Server:
 
     def __init__(self):
         self.state = "not_initialized"
-        self.debug = True
+        self.debug = os.environ.get("MANOLE_DEBUG", "0") == "1"
         self.running = True
         self.start_time = time.time()
 
@@ -77,6 +104,29 @@ class Server:
         _sys.stderr.write(message + "\n")
         _sys.stderr.flush()
 
+    def _delete_index_files(self, entry: dict) -> None:
+        """Delete the LEANN index directory and .neurofind cache from disk."""
+        import shutil
+        from chat import find_index_path
+        index_name = entry.get("index_name")
+        if index_name:
+            try:
+                index_path = find_index_path(index_name)
+                # find_index_path returns a file path like .leann/indexes/name/documents.leann
+                # We need to delete the parent directory containing all index files
+                index_dir = Path(index_path).parent
+                if index_dir.is_dir():
+                    shutil.rmtree(index_dir)
+                    self._log(f"Deleted index: {index_dir}")
+            except Exception as exc:
+                self._log(f"Failed to delete index {index_name}: {exc}")
+        data_path = entry.get("path")
+        if data_path:
+            neurofind_dir = Path(data_path) / ".neurofind"
+            if neurofind_dir.is_dir():
+                shutil.rmtree(neurofind_dir)
+                self._log(f"Deleted cache: {neurofind_dir}")
+
     def _collect_stats(self, data_dir: Path) -> dict:
         """Walk a directory and return file statistics."""
         file_count = 0
@@ -89,6 +139,8 @@ class Server:
 
         base_depth = len(data_dir.parts)
         for p in data_dir.rglob("*"):
+            if p.is_symlink():
+                continue
             if p.is_dir():
                 dir_count += 1
                 depth = len(p.parts) - base_depth
@@ -182,6 +234,9 @@ class Server:
 
         if not data_dir_path.is_dir():
             return {"id": req_id, "type": "error", "data": {"message": f"Not a directory: {data_dir}"}}
+
+        if _is_sensitive_directory(data_dir_path):
+            return {"id": req_id, "type": "error", "data": {"message": "Cannot index sensitive system directory"}}
 
         dir_id = make_dir_id(str(data_dir_path))
 
@@ -316,6 +371,8 @@ class Server:
         query = params.get("text", "").strip()
         if not query:
             return {"id": req_id, "type": "error", "data": {"message": "Empty query"}}
+        if len(query) > 10000:
+            return {"id": req_id, "type": "error", "data": {"message": "Query too long (max 10000 chars)"}}
 
         search_all = params.get("searchAll", False)
         if search_all:
@@ -426,24 +483,28 @@ class Server:
         return {"id": req_id, "type": "result", "data": {"results": results}}
 
     def handle_remove_directory(self, req_id, params: dict) -> dict:
-        """Remove a directory from the server."""
+        """Remove a directory from the server and delete its index from disk."""
         dir_id = params.get("directoryId")
         if not dir_id or dir_id not in self.directories:
             return {"id": req_id, "type": "error", "data": {"message": f"Unknown directory: {dir_id}"}}
-        del self.directories[dir_id]
+        entry = self.directories.pop(dir_id)
+        self._delete_index_files(entry)
         # If no directories left, reset state
         if not self.directories:
             self.state = "not_initialized"
         return {"id": req_id, "type": "result", "data": {"status": "ok"}}
 
     def handle_reindex(self, req_id, params: dict) -> dict:
-        """Re-index a previously added directory."""
+        """Re-index a previously added directory, deleting old index files first."""
         dir_id = params.get("directoryId")
         if not dir_id or dir_id not in self.directories:
             return {"id": req_id, "type": "error", "data": {"message": f"Unknown directory: {dir_id}"}}
+        entry = self.directories[dir_id]
+        # Delete old index files from disk
+        self._delete_index_files(entry)
         # Clear cached file graph so it's recomputed after reindex
-        self.directories[dir_id].pop("file_graph", None)
-        stored_path = self.directories[dir_id]["path"]
+        entry.pop("file_graph", None)
+        stored_path = entry["path"]
         # Invalidate cached summary so it's regenerated
         summary_path = Path(stored_path) / ".neurofind" / "summary.txt"
         if summary_path.exists():
@@ -488,8 +549,7 @@ class Server:
 
     def handle_check_models(self, req_id, params: dict) -> dict:
         """Check which models are present/missing in the models directory."""
-        models_dir_str = params.get("modelsDir")
-        models_dir = Path(models_dir_str) if models_dir_str else get_models_dir()
+        models_dir = get_models_dir()
 
         manifest = load_manifest()
         model_statuses = []
@@ -516,8 +576,7 @@ class Server:
 
     def handle_download_models(self, req_id, params: dict) -> dict:
         """Download missing models with setup_progress NDJSON events."""
-        models_dir_str = params.get("modelsDir")
-        models_dir = Path(models_dir_str) if models_dir_str else get_models_dir()
+        models_dir = get_models_dir()
         models_dir.mkdir(parents=True, exist_ok=True)
 
         manifest = load_manifest()
@@ -597,7 +656,8 @@ class Server:
         try:
             return handler()
         except Exception as e:
-            return {"id": req_id, "type": "error", "data": {"message": str(e)}}
+            self._log(f"Handler error ({method}): {e}")
+            return {"id": req_id, "type": "error", "data": {"message": "Internal server error"}}
 
     def run(self, input_stream=None):
         """Main loop: read stdin, dispatch, write stdout."""

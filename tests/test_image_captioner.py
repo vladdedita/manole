@@ -149,8 +149,8 @@ def test_cached_images_not_recaptioned(MockBuilder):
 
     # Model should only be called for the uncached image
     assert captioner.model.caption_image.call_count == 1
-    # Both cached + new captions are injected into the index
-    assert MockBuilder.return_value.add_text.call_count == 2
+    # Only new captions are injected into the index (cached are already there)
+    assert MockBuilder.return_value.add_text.call_count == 1
     assert MockBuilder.return_value.update_index.call_count == 1
 
 
@@ -347,9 +347,9 @@ def test_run_sends_captioning_status_when_uncached_images_exist(MockBuilder):
 
 
 @patch("image_captioner.LeannBuilder")
-def test_run_does_not_send_captioning_status_when_all_cached(MockBuilder):
+def test_run_sends_captioning_status_even_when_all_cached(MockBuilder):
     """Given all images are already cached, when run() executes,
-    then no status event with state='captioning' is sent."""
+    then captioning status and completion events are still sent for UI consistency."""
     data_dir = _make_test_dir(images=["cached1.jpg", "cached2.png"])
     from caption_cache import CaptionCache
     cache = CaptionCache(os.path.join(data_dir, ".neurofind", "captions"))
@@ -364,9 +364,13 @@ def test_run_does_not_send_captioning_status_when_all_cached(MockBuilder):
         c for c in send_fn.call_args_list
         if c[0][1] == "status" and c[0][2].get("state") == "captioning"
     ]
-    assert len(status_calls) == 0, (
-        f"Expected no captioning status event, got {len(status_calls)}"
-    )
+    assert len(status_calls) == 1, "Should send captioning status even when all cached"
+
+    complete_calls = [
+        c for c in send_fn.call_args_list
+        if c[0][1] == "captioning_progress" and c[0][2].get("state") == "complete"
+    ]
+    assert len(complete_calls) == 1, "Should send completion event even when all cached"
 
 
 # --- Step 02-03: Pipeline I/O with inference ---

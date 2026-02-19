@@ -48,10 +48,12 @@ class ImageCaptioner:
 
         total = len(uncached)
 
+        # Always notify UI that captioning phase has started
+        self.send_fn(None, "status", {"state": "captioning"})
+
         # Caption uncached images
         new_captions: list[tuple[Path, str]] = []
         if total > 0:
-            self.send_fn(None, "status", {"state": "captioning"})
             log.info(f"{total} uncached images to caption")
             if self.debug:
                 print(f"[CAPTIONER] {total} uncached images to caption")
@@ -92,33 +94,34 @@ class ImageCaptioner:
                             next_future = executor.submit(self._load_image_as_data_uri, uncached[i + 1])
                         continue
 
-        # Inject ALL captions (cached + new) into the index
-        all_captions = cached_captions + new_captions
-        if all_captions:
+        # Only inject when there are new captions to add
+        if new_captions:
             try:
-                self._inject_captions(all_captions)
+                self._inject_captions(new_captions)
                 if self.debug:
-                    print(f"[CAPTIONER] Injected {len(all_captions)} captions into index ({len(cached_captions)} cached, {len(new_captions)} new)")
+                    print(f"[CAPTIONER] Injected {len(new_captions)} new captions into index")
             except Exception as exc:
                 log.warning(f"Failed to inject captions into index: {exc}")
                 if self.debug:
                     print(f"[CAPTIONER] Failed to inject captions: {exc}")
 
-        if total > 0:
-            if self.debug:
+        if self.debug:
+            if total > 0:
                 print(f"[CAPTIONER] Complete: {len(new_captions)}/{total} images captioned")
-            self.send_fn(None, "captioning_progress", {
-                "directoryId": self.dir_id,
-                "done": len(new_captions),
-                "total": total,
-                "state": "complete",
-            })
-        elif cached_captions and self.debug:
-            print(f"[CAPTIONER] All {len(cached_captions)} images already cached, injected into index")
+            elif cached_captions:
+                print(f"[CAPTIONER] All {len(cached_captions)} images already cached, injected into index")
+        self.send_fn(None, "captioning_progress", {
+            "directoryId": self.dir_id,
+            "done": total,
+            "total": total,
+            "state": "complete",
+        })
 
     def _find_images(self) -> list[Path]:
         images = []
         for f in self.data_dir.rglob("*"):
+            if f.is_symlink():
+                continue
             if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS:
                 images.append(f)
         return sorted(images)
@@ -148,7 +151,7 @@ class ImageCaptioner:
         for image_path, caption in captions:
             # Use a unique ID based on image path hash to avoid collision
             # with existing passage IDs (which start from "0")
-            chunk_id = f"img_{hashlib.md5(str(image_path).encode()).hexdigest()[:12]}"
+            chunk_id = f"img_{hashlib.sha256(str(image_path).encode()).hexdigest()[:12]}"
             builder.add_text(
                 text=f"Photo description: {caption}",
                 metadata={

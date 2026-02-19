@@ -1,7 +1,7 @@
 {
-  "name": "neurofind",
+  "name": "manole",
   "version": "0.1.0",
-  "description": "NeuroFind — local AI file assistant",
+  "description": "Manole — local AI file assistant",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -20,8 +20,6 @@
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-slot": "^1.2.4",
     "@xyflow/react": "^12.10.0",
-    "electron": "^40.4.1",
-    "electron-vite": "^3.1.0",
     "motion": "^12.34.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
@@ -31,7 +29,11 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "^3.1.0",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }
