@@ -20,10 +20,5 @@ override-dependencies = [
     "transformers>=4.55",
 ]
 
-[dependency-groups]
-dev = [
-    "pyinstaller>=6.19.0",
-]
-
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
