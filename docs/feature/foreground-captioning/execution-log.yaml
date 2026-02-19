@@ -1,0 +1,83 @@
+events:
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T10:04:34Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T10:06:58Z'
+- d: 'NOT_APPLICABLE: acceptance tests already test through driving port (handle_init)
+    covering all 5 ACs'
+  p: RED_UNIT
+  s: SKIPPED
+  sid: 01-01
+  t: '2026-02-18T10:07:07Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T10:07:48Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-18T10:08:08Z'
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T10:11:07Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T10:11:33Z'
+- d: PASS
+  p: RED_UNIT
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T10:11:42Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T10:12:31Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 02-01
+  t: '2026-02-18T10:12:48Z'
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T10:14:10Z'
+- d: 'NOT_APPLICABLE: Pure prop-threading wiring step. Existing buildSteps acceptance
+    tests already cover LoadingScreen behavior with captioningProgress. No React component
+    test infra (jsdom) available for mounting App.tsx.'
+  p: RED_ACCEPTANCE
+  s: SKIPPED
+  sid: 02-02
+  t: '2026-02-18T10:14:22Z'
+- d: 'NOT_APPLICABLE: Single-line prop threading (activeDirectory?.captioningProgress).
+    No new behavior to test -- buildSteps already tested. Writing a unit test for
+    JSX prop passing without React test infra would be Testing Theater.'
+  p: RED_UNIT
+  s: SKIPPED
+  sid: 02-02
+  t: '2026-02-18T10:14:29Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T10:14:47Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 02-02
+  t: '2026-02-18T10:15:09Z'
+project_id: foreground-captioning
+schema_version: '3.0'

@@ -1,0 +1,80 @@
+roadmap:
+  project_id: fast-captioning
+  created_at: '2026-02-18T10:59:40Z'
+  total_steps: 4
+  phases: 2
+phases:
+- id: '01'
+  name: 'Model and loading fixes'
+  steps:
+  - id: 01-01
+    name: 'Switch to Q4_0 vision model and eager loading'
+    criteria:
+      - 'Vision model uses LFM2.5-VL-1.6B-Q4_0.gguf and its F16 mmproj'
+      - 'VL_REPO_ID points to LiquidAI/LFM2.5-VL-1.6B-GGUF'
+      - 'Vision model uses Llava15ChatHandler instead of MoondreamChatHandler'
+      - 'ModelManager exposes load_vision() that eagerly loads the vision model'
+      - 'Server calls load_vision() during loading_model phase after load()'
+    files:
+      production:
+        - models.py
+        - server.py
+      test:
+        - tests/test_vision_models.py
+        - tests/test_server.py
+    estimate: 1.5h
+- id: '02'
+  name: 'Image processing pipeline fixes'
+  steps:
+  - id: 02-01
+    name: 'Add image downscaling before captioning'
+    criteria:
+      - 'Images are thumbnailed to max 768x768 (preserving aspect ratio) before encoding to data URI'
+      - 'Downscaling uses LANCZOS resampling'
+      - 'Images smaller than 768px on both axes are not upscaled'
+    files:
+      production:
+        - image_captioner.py
+      test:
+        - tests/test_image_captioner.py
+    estimate: 0.5h
+  - id: 02-02
+    name: 'Eliminate duplicate image scan'
+    criteria:
+      - 'Captioner run() sends "captioning" status event itself when uncached images exist'
+      - 'Server no longer calls _find_images() or counts uncached before captioner.run()'
+      - 'Server calls captioner.run() directly without pre-scan'
+      - 'Captioning status event is sent exactly once per run (not duplicated)'
+    files:
+      production:
+        - image_captioner.py
+        - server.py
+      test:
+        - tests/test_image_captioner.py
+        - tests/test_server.py
+    estimate: 1h
+  - id: 02-03
+    name: 'Pipeline I/O with inference'
+    criteria:
+      - 'Next image is pre-loaded while current image is being captioned'
+      - 'Pre-loading uses a thread pool (not async) to overlap disk I/O with GPU inference'
+      - 'First image in batch still loads synchronously before inference starts'
+      - 'Caption results are identical to sequential processing (no ordering change)'
+    files:
+      production:
+        - image_captioner.py
+      test:
+        - tests/test_image_captioner.py
+    estimate: 1h
+implementation_scope:
+  source_directories:
+  - ./
+  test_directories:
+  - tests/
+  excluded_patterns:
+  - __init__.py
+  - __pycache__/**
+validation:
+  status: approved
+  reviewer: orchestrator-self-review
+  approved_at: '2026-02-18T11:02:00Z'

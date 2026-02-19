@@ -1,0 +1,64 @@
+journey:
+  name: foreground-captioning
+  epic: foreground-captioning
+  description: >
+    Move image captioning and summary generation from background to foreground loading,
+    showing progress in the LoadingScreen so the user knows why the app is busy.
+
+  actors:
+    - user
+
+  steps:
+    - id: select_folder
+      actor: user
+      action: Opens a directory
+      emotion: curious
+      artifacts_produced: [data_dir_path]
+
+    - id: loading_model
+      actor: system
+      action: Loads LLM model (first time only)
+      emotion: patient
+      status_event: { state: loading_model }
+      condition: model not yet loaded
+
+    - id: indexing
+      actor: system
+      action: Builds vector index from text files
+      emotion: patient
+      status_event: { state: indexing }
+      artifacts_produced: [index_path]
+
+    - id: summarizing
+      actor: system
+      action: Generates directory summary
+      emotion: patient
+      status_event: { state: summarizing }
+      artifacts_produced: [summary]
+
+    - id: captioning
+      actor: system
+      action: Captions uncached images
+      emotion: informed
+      status_event: { state: captioning }
+      progress_event: captioning_progress { done, total }
+      condition: uncached images exist
+      artifacts_produced: [captions]
+
+    - id: ready
+      actor: system
+      action: Chat interface unlocked
+      emotion: satisfied
+      status_event: { state: ready }
+      directory_update: { state: ready, stats, summary }
+
+  error_paths:
+    - step: captioning
+      error: single image fails
+      recovery: skip and continue
+    - step: captioning
+      error: all images fail
+      recovery: proceed to ready (captions are optional)
+    - step: summarizing
+      error: summary generation fails
+      recovery: proceed to captioning/ready

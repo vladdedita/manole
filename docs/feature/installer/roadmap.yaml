@@ -1,0 +1,157 @@
+roadmap:
+  project_id: installer
+  created_at: '2026-02-19T12:22:21Z'
+  total_steps: 7
+  phases: 3
+phases:
+- id: '01'
+  name: 'Foundation: manifest, server handlers, UI component'
+  steps:
+  - id: 01-01
+    name: 'Model manifest and platform-aware path resolution'
+    description: >
+      Create models-manifest.json as single source of truth for model
+      metadata. Add get_models_dir() to models.py with platform-aware
+      storage paths. Update ModelManager to resolve model paths from
+      manifest and models directory instead of hardcoded relative paths.
+    criteria:
+      - 'Models directory resolves to ~/Library/Application Support/Manole/models/ on macOS'
+      - 'Models directory resolves to ~/.local/share/manole/models/ on Linux'
+      - 'MANOLE_MODELS_DIR env var overrides platform default when set'
+      - 'Dev mode (unpackaged) uses ./models/ relative path'
+      - 'ModelManager loads model paths from manifest, not hardcoded strings'
+    time_estimate: '45min'
+    dependencies: []
+    implementation_scope:
+      - models.py
+      - models-manifest.json
+  - id: 01-02
+    name: 'Server-side check_models and download_models handlers'
+    description: >
+      Add handle_check_models and handle_download_models to Server.
+      check_models reads manifest, returns per-model present/missing
+      status. download_models fetches missing models via
+      huggingface_hub with setup_progress NDJSON events for each model.
+    criteria:
+      - 'check_models returns list of models with present/missing status and expected sizes'
+      - 'download_models downloads only missing models to platform models directory'
+      - 'setup_progress events emit per-model name, bytes downloaded, total bytes, and overall percent'
+      - 'Interrupted download resumes from partial file on next invocation'
+      - 'download_models returns error with model name if a download fails'
+    time_estimate: '60min'
+    dependencies:
+      - 01-01
+    implementation_scope:
+      - server.py
+  - id: 01-03
+    name: 'Protocol types and SetupScreen React component'
+    description: >
+      Add SetupProgressData and setup_progress to protocol.ts types.
+      Create SetupScreen.tsx showing per-model download progress with
+      name, progress bar, and bytes. Display overall completion status.
+    criteria:
+      - 'SetupProgressData type includes model name, bytes downloaded, total bytes, overall percent'
+      - 'setup_progress added to ResponseType union'
+      - 'SetupScreen renders a progress bar per model with download size'
+      - 'SetupScreen shows overall progress across all models'
+      - 'SetupScreen displays completion state when all models finish'
+    time_estimate: '45min'
+    dependencies:
+      - 01-02
+    implementation_scope:
+      - ui/src/lib/protocol.ts
+      - ui/src/components/SetupScreen.tsx
+- id: '02'
+  name: 'Electron integration: orchestration and state management'
+  steps:
+  - id: 02-01
+    name: 'ModelSetupManager, env var passing, and main process orchestration'
+    description: >
+      Create setup.ts with ModelSetupManager that calls check_models
+      via PythonBridge, decides if setup is needed, triggers
+      download_models, and relays progress to renderer. Pass
+      MANOLE_MODELS_DIR env var when spawning Python process. Wire
+      setup flow into main.ts app startup sequence.
+    criteria:
+      - 'Python process receives MANOLE_MODELS_DIR env var matching platform models directory'
+      - 'App startup calls check_models before showing main UI'
+      - 'When all models present, app proceeds directly to main UI without setup screen'
+      - 'When models missing, download_models is invoked and progress events forwarded to renderer'
+      - 'Setup completes before any init/indexing request is sent'
+    time_estimate: '60min'
+    dependencies:
+      - 01-03
+    implementation_scope:
+      - ui/electron/setup.ts
+      - ui/electron/python.ts
+      - ui/electron/main.ts
+  - id: 02-02
+    name: 'App.tsx setup phase state management'
+    description: >
+      Add setup phase states to App.tsx: checking, downloading, ready.
+      Show SetupScreen during download phase, LoadingScreen during
+      init, main UI when ready. Subscribe to setup_progress events
+      and pass data to SetupScreen.
+    criteria:
+      - 'App shows SetupScreen when backend reports models missing'
+      - 'App transitions from SetupScreen to normal flow after downloads complete'
+      - 'Setup progress data (per-model bytes, overall percent) flows to SetupScreen component'
+      - 'First launch shows setup screen; subsequent launches skip directly to main UI'
+    time_estimate: '45min'
+    dependencies:
+      - 02-01
+    implementation_scope:
+      - ui/src/App.tsx
+- id: '03'
+  name: 'Build pipeline: slim installer and integration verification'
+  steps:
+  - id: 03-01
+    name: 'Build config: remove bundled models, add manifest'
+    description: >
+      Remove models/ from electron-builder.yml extraResources. Add
+      models-manifest.json to extraResources so it ships with the
+      app. Verify resulting package excludes GGUF files.
+    criteria:
+      - 'electron-builder.yml no longer includes models/ in extraResources'
+      - 'models-manifest.json is included in extraResources'
+      - 'Built installer size is under 200MB (down from ~1.5GB)'
+      - 'Packaged app contains no .gguf files'
+    time_estimate: '30min'
+    dependencies:
+      - 02-02
+    implementation_scope:
+      - ui/electron-builder.yml
+      - models-manifest.json
+  - id: 03-02
+    name: 'Integration verification: full setup flow end-to-end'
+    description: >
+      Verify the complete first-launch flow: app starts, check_models
+      finds no models, SetupScreen appears, download completes (or is
+      mocked), app transitions to main UI. Verify resume after
+      interruption. Verify skip on subsequent launch.
+    criteria:
+      - 'Fresh install with no models triggers SetupScreen with download progress'
+      - 'After setup completes, app transitions to normal loading and init flow'
+      - 'Killing app mid-download and relaunching resumes without re-downloading completed models'
+      - 'Second launch with models present skips SetupScreen entirely'
+      - 'App functions fully offline after initial model download'
+    time_estimate: '45min'
+    dependencies:
+      - 03-01
+    implementation_scope:
+      - tests/test_server.py
+      - ui/src/App.tsx
+implementation_scope:
+  source_directories:
+  - ./
+  - ui/src/
+  - ui/electron/
+  test_directories:
+  - tests/
+  excluded_patterns:
+  - __init__.py
+  - __pycache__/**
+validation:
+  status: approved
+  reviewer: atlas
+  approved_at: null

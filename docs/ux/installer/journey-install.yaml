@@ -1,0 +1,138 @@
+journey:
+  name: manole-installer
+  version: "1.0"
+  persona:
+    name: Ana
+    type: non-technical-user
+    context: "Found Manole online, wants local AI file search, has Mac or Linux"
+
+  phases:
+    - id: download
+      name: Download Installer
+      steps:
+        - id: find-download
+          action: "Visit website, click platform-specific download button"
+          artifact_out: installer_file
+          emotion: curious → confident
+        - id: download-complete
+          action: "~150 MB download completes"
+          duration: "1-3 min"
+          emotion: satisfied
+
+    - id: install
+      name: Install Application
+      platforms:
+        macos:
+          steps:
+            - id: open-dmg
+              action: "Double-click .dmg, drag Manole to Applications"
+              duration: "10 sec"
+              emotion: familiar
+        linux:
+          steps:
+            - id: run-appimage
+              action: "chmod +x AppImage, double-click to run"
+              duration: "15 sec"
+              emotion: straightforward
+
+    - id: first-launch-setup
+      name: First Launch Setup
+      critical: true
+      steps:
+        - id: launch
+          action: "Open Manole for the first time"
+          emotion: expectant
+        - id: setup-screen
+          action: "Setup screen appears with welcome message"
+          emotion: slight_surprise → reassured
+          ui_element: SetupWizard
+        - id: model-download
+          action: "Models download automatically with per-file progress"
+          duration: "3-15 min depending on connection"
+          emotion: waiting → reassured
+          artifacts:
+            - model_manifest  # embedded list of models
+            - setup_progress  # persisted resume state
+        - id: setup-complete
+          action: "'Setup complete!' + 'Get Started' button"
+          emotion: relief → excitement
+        - id: enter-app
+          action: "Click Get Started, main UI loads"
+          emotion: delight
+
+      error_paths:
+        - trigger: network_lost
+          message: "Connection lost. Download will resume when connected."
+          recovery: auto_retry_on_reconnect
+          resumable: true
+        - trigger: slow_connection
+          message: "This may take a while on slower connections."
+          recovery: patience_messaging
+        - trigger: disk_full
+          message: "Not enough disk space. Manole needs ~{required_gb} GB free."
+          recovery: actionable_message
+        - trigger: corrupted_download
+          message: "Download verification failed. Retrying..."
+          recovery: sha256_check_and_redownload
+        - trigger: app_closed_mid_download
+          recovery: resume_on_next_launch
+
+    - id: ongoing-use
+      name: Fully Offline Use
+      steps:
+        - id: open-app
+          action: "Open Manole — loads directly to main UI"
+          emotion: confident
+        - id: all-offline
+          action: "All features work without internet"
+          emotion: trust
+
+  models:
+    - id: text-model
+      name: "LFM2.5-1.2B-Instruct"
+      file: "LFM2.5-1.2B-Instruct-Q4_0.gguf"
+      repo: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"
+      size_mb: ~700
+      required: true
+
+    - id: vision-model
+      name: "Moondream2 Text Model"
+      file: "moondream2-text-model-f16_ct-vicuna.gguf"
+      repo: "ggml-org/moondream2-20250414-GGUF"
+      size_mb: ~800
+      required: true
+
+    - id: vision-projector
+      name: "Moondream2 Projector"
+      file: "moondream2-mmproj-f16-20250414.gguf"
+      repo: "ggml-org/moondream2-20250414-GGUF"
+      size_mb: ~18
+      required: true
+
+    - id: rag-model
+      name: "LFM2-1.2B-RAG"
+      file: "LFM2-1.2B-RAG-Q4_0.gguf"
+      repo: "LiquidAI/LFM2-1.2B-RAG-GGUF"
+      size_mb: ~700
+      required: false
+      note: "Optional RAG-optimized model"
+
+    - id: extract-model
+      name: "LFM2-350M-Extract"
+      file: "LFM2-350M-Extract-Q4_0.gguf"
+      repo: "LiquidAI/LFM2-350M-Extract-GGUF"
+      size_mb: ~200
+      required: false
+      note: "Optional extraction model"
+
+  storage:
+    location: app_bundle_resources
+    macos: "$APP/Contents/Resources/models/"
+    linux: "$APPIMAGE_EXTRACT/models/"
+
+  constraints:
+    - "Installer file < 200 MB (no models)"
+    - "First-launch download: resumable, per-file SHA256 verified"
+    - "Models stored inside app bundle"
+    - "After setup: zero internet required"
+    - "GUI-only flow, no terminal for non-technical users"

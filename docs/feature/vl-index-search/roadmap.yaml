@@ -1,0 +1,96 @@
+roadmap:
+  project_id: vl-index-search
+  created_at: '2026-02-18T08:21:24Z'
+  total_steps: 4
+  phases: 3
+phases:
+- id: '01'
+  name: 'Agent image-awareness (tool schema, followup priority, stopwords)'
+  steps:
+  - id: 01-01
+    name: 'Update semantic_search tool description to mention image captions'
+    description: >
+      The TOOL_SCHEMAS semantic_search description in agent.py says "Search inside file
+      contents for information". The LLM has no idea image captions are in the index and
+      refuses image queries. Update the description to mention image captions are searchable.
+    criteria:
+      - 'TOOL_SCHEMAS semantic_search description includes image captions as searchable content'
+      - 'Existing non-image semantic_search behavior unchanged'
+    files_to_modify:
+      - agent.py
+      - tests/test_agent.py
+    estimated_hours: 0.25
+    dependencies: []
+  - id: 01-02
+    name: 'Flip followup priority and add image stopwords'
+    description: >
+      _needs_followup in agent.py always fires grep_files before semantic_search for missing
+      keywords. For image queries, caption vocabulary rarely matches user phrasing so the wrong
+      tool fires. Flip priority to try semantic_search first. Also add generic image terms
+      (images, pictures, photos, drawings) to _FOLLOWUP_STOPWORDS to prevent them from
+      triggering spurious followups.
+    criteria:
+      - '_needs_followup tries semantic_search before grep_files when neither used'
+      - '_FOLLOWUP_STOPWORDS contains image, images, picture, pictures, photo, photos, drawing, drawings'
+      - 'Non-image followup still falls back to grep_files then semantic_search'
+    files_to_modify:
+      - agent.py
+      - tests/test_agent.py
+    estimated_hours: 0.5
+    dependencies:
+      - 01-01
+
+- id: '02'
+  name: 'Rewriter image query expansion'
+  steps:
+  - id: 02-01
+    name: 'Add initial image query example to REWRITER_SYSTEM prompt'
+    description: >
+      REWRITER_SYSTEM in rewriter.py has no example for initial image queries (only a
+      follow-up "yes" about animal pictures). Add an example showing visual synonym expansion
+      in search_query for a standalone image query like "any cat drawings?".
+    criteria:
+      - 'REWRITER_SYSTEM contains an example for a standalone image query (not follow-up)'
+      - 'Example shows visual synonym expansion in search_query field'
+      - 'Existing rewriter examples and behavior preserved'
+    files_to_modify:
+      - rewriter.py
+      - tests/test_rewriter.py
+    estimated_hours: 0.25
+    dependencies: []
+
+- id: '03'
+  name: 'Captioner duplicate server fix'
+  steps:
+  - id: 03-01
+    name: 'Set LeannBuilder is_recompute=False in _inject_captions'
+    description: >
+      image_captioner.py _inject_captions creates LeannBuilder() with default is_recompute=True.
+      When update_index() runs, it spawns a ZMQ embedding server even though the searcher already
+      has one running, causing a duplicate server on a different port. Setting is_recompute=False
+      makes update_index embed inline without needing a ZMQ server.
+    criteria:
+      - 'LeannBuilder constructed with is_recompute=False'
+      - 'Caption injection still adds all caption entries to the existing index'
+    files_to_modify:
+      - image_captioner.py
+      - tests/test_image_captioner.py
+    estimated_hours: 0.25
+    dependencies: []
+
+implementation_scope:
+  source_directories:
+  - agent.py
+  - rewriter.py
+  - image_captioner.py
+  test_directories:
+  - tests/test_agent.py
+  - tests/test_rewriter.py
+  - tests/test_image_captioner.py
+  excluded_patterns:
+  - __init__.py
+  - __pycache__/**
+validation:
+  status: approved
+  reviewer: orchestrator-self-review
+  approved_at: '2026-02-18T08:25:00Z'

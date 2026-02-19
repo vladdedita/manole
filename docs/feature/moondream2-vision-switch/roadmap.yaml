@@ -1,0 +1,34 @@
+roadmap:
+  project_id: moondream2-vision-switch
+  created_at: '2026-02-17T17:43:48Z'
+  total_steps: 1
+  phases: 1
+phases:
+- id: '01'
+  name: 'Model switch to moondream2'
+  steps:
+  - id: 01-01
+    name: 'Replace LFM2.5-VL with moondream2 and add fail-fast handler check'
+    criteria:
+      - 'VL_REPO_ID resolves to ggml-org/moondream2-20250414-GGUF'
+      - 'DEFAULT_VISION_MODEL_PATH references moondream2-text-model-f16_ct-vicuna.gguf'
+      - 'DEFAULT_MMPROJ_PATH references moondream2-mmproj-f16-20250414.gguf'
+      - 'Vision handler is MoondreamChatHandler, not Llava15ChatHandler'
+      - 'Handler instantiation is wrapped in try/except; ValueError re-raised as RuntimeError with message naming the expected mmproj file'
+      - 'All existing Llava15ChatHandler mocks replaced with MoondreamChatHandler mocks in test_vision_models.py'
+      - 'New test: when MoondreamChatHandler raises ValueError, vision_model property raises RuntimeError with actionable message'
+      - 'All vision tests pass (uv run pytest tests/test_vision_models.py -v)'
+    time_estimate: 25min
+    dependencies: []
+implementation_scope:
+  source_directories:
+  - models.py
+  test_directories:
+  - tests/test_vision_models.py
+  excluded_patterns:
+  - __init__.py
+  - __pycache__/**
+validation:
+  status: approved
+  reviewer: atlas
+  approved_at: '2026-02-17T17:50:00Z'

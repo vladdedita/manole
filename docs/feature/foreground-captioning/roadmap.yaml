@@ -1,0 +1,83 @@
+roadmap:
+  project_id: foreground-captioning
+  created_at: '2026-02-18T10:01:01Z'
+  total_steps: 3
+  phases: 2
+phases:
+- id: '01'
+  name: 'Backend: inline foreground captioning with status events'
+  steps:
+  - id: 01-01
+    name: 'Move _background_tasks inline and emit status events before summary and captioning'
+    description: >
+      Remove the _background_tasks thread and background_thread dict entry from handle_init.
+      Run summary generation and image captioning inline (sequentially) before sending "ready".
+      Emit status event "summarizing" before _generate_summary. Emit status event "captioning"
+      before ImageCaptioner.run() only when uncached images exist. Reload LeannSearcher after
+      captioning. Errors in either step must not block the ready state.
+    criteria:
+      - 'handle_init sends status {"state":"summarizing"} before summary generation'
+      - 'handle_init sends status {"state":"captioning"} before captioning only when uncached images exist'
+      - 'handle_init sends "ready" status and directory_update only after summary and captioning complete'
+      - 'No threading.Thread created in handle_init for background tasks'
+      - 'Exceptions in summary or captioning do not prevent ready state'
+    files_to_modify:
+      - server.py
+      - tests/test_server.py
+    estimated_hours: 1.0
+    dependencies: []
+
+- id: '02'
+  name: 'Frontend: dynamic LoadingScreen with captioning progress'
+  steps:
+  - id: 02-01
+    name: 'Make LoadingScreen steps dynamic and add captioning progress counter'
+    description: >
+      Replace static STEPS array with a dynamic list built from props. Accept new props for
+      whether captioning is active and captioning progress (done/total). Add "Generating summary"
+      and "Captioning images" steps between "Indexing files" and "Ready". Show live "(done/total)"
+      counter on the captioning step label. Omit the captioning step entirely when not needed.
+      Add "summarizing" and "captioning" to StatusData state union in protocol.ts.
+    criteria:
+      - 'LoadingScreen shows "Generating summary" step when backend state is "summarizing" or later'
+      - 'LoadingScreen shows "Captioning images (done/total)" step with live counter when captioning active'
+      - 'Captioning step hidden when no captioning status received'
+      - 'StatusData state type includes "summarizing" and "captioning"'
+    files_to_modify:
+      - ui/src/components/LoadingScreen.tsx
+      - ui/src/lib/protocol.ts
+    estimated_hours: 1.0
+    dependencies:
+      - 01-01
+  - id: 02-02
+    name: 'Wire captioning progress from App.tsx subscribe to LoadingScreen props'
+    description: >
+      App.tsx already captures captioning_progress events into directory state. Thread the
+      active directory captioning progress (done/total) to LoadingScreen as a prop. Also
+      pass a flag indicating whether captioning is active based on backendState.
+    criteria:
+      - 'LoadingScreen receives captioning progress (done/total) from App.tsx when captioning active'
+      - 'LoadingScreen receives no captioning props when backend skips captioning'
+      - 'Existing SidePanel captioning progress behavior unchanged'
+    files_to_modify:
+      - ui/src/App.tsx
+      - ui/src/components/LoadingScreen.tsx
+    estimated_hours: 0.5
+    dependencies:
+      - 02-01
+
+implementation_scope:
+  source_directories:
+  - server.py
+  - ui/src/components/LoadingScreen.tsx
+  - ui/src/App.tsx
+  - ui/src/lib/protocol.ts
+  test_directories:
+  - tests/test_server.py
+  excluded_patterns:
+  - __init__.py
+  - __pycache__/**
+validation:
+  status: approved
+  reviewer: orchestrator-self-review
+  approved_at: '2026-02-18T10:05:00Z'
