@@ -1,13 +1,18 @@
 # Manole
 
+> **Disclaimer:** This project was developed for learning purposes only, as part of an internal contest at [ASSIST Software](https://assist-software.net). It is not intended for production use.
+
 Local AI file assistant. Index your documents, ask questions about them, explore file relationships on an interactive map. Runs entirely on your machine — no cloud, no API keys, no data leaving your disk.
 
-## Download
+## Quick Start
 
-Grab the latest installer from [**GitHub Releases**](../../releases/latest):
+```bash
+git clone https://github.com/vladdedita/manole.git
+cd manole
+./run.sh
+```
 
-- **macOS** — `.dmg` (Apple Silicon)
-- **Linux** — `.AppImage` (x86_64)
+The script detects your OS, installs prerequisites (Python 3.13, Node.js, uv) via your package manager, sets up the environment, and launches the app. Safe to run repeatedly — subsequent runs skip installs and go straight to launch.
 
 On first launch, Manole downloads ~1.5 GB of language models. After that, it works fully offline.
 
@@ -75,22 +80,10 @@ npx vitest run
 ### Quick start (recommended)
 
 ```bash
-cd ui && npm run dev
+./run.sh
 ```
 
-This launches Electron, which spawns the Python backend as a child process. Open a folder from the UI to start indexing. If the packaged installer doesn't work on your machine, this is the reliable way to run Manole locally.
-
-## Building for Distribution
-
-```bash
-# 1. Freeze the Python backend
-uv run pyinstaller server.spec --noconfirm
-
-# 2. Package the Electron app (macOS .dmg or Linux .AppImage)
-cd ui && npx electron-builder --config electron-builder.yml
-```
-
-The installer ships without models (~150 MB). On first launch, a setup screen downloads the required GGUF models from HuggingFace with resume support.
+This handles everything: installs prerequisites, sets up the Python and Node environments, then launches Electron with the Python backend. Open a folder from the UI to start indexing.
 
 ## Running Tests
 
@@ -123,7 +116,7 @@ manole/
   server.py            # NDJSON stdio protocol adapter
   chat.py              # CLI chat interface
   models-manifest.json # Model metadata (filenames, repos, sizes)
-  server.spec          # PyInstaller build spec
+  run.sh               # Setup-and-run script (installs deps, launches app)
   tests/               # Python tests
   ui/                  # Electron React app
     electron/          # Main process, Python bridge, setup manager
@@ -142,7 +135,7 @@ docs/
   feature/         # Feature implementation tracking (roadmaps, execution logs)
   requirements/    # User stories and acceptance criteria
   ux/              # UX journey maps and user flow designs
-  analysis/        # Root cause analyses and technical investigations
+  analysis/        # Technical investigations
   distill/         # Acceptance test scenarios
 ```
 
@@ -151,7 +144,6 @@ Key entry points:
 - **How the LLM pipeline works** — [`docs/architecture.md`](docs/architecture.md) — agent loop, tools, search, models, image captioning
 - **How the agent works** — `docs/plans/2026-02-15-agent-loop-design.md`
 - **Electron UI design** — `docs/plans/2026-02-16-electron-ui-design.md`
-- **Installer architecture** — `docs/feature/installer/design/architecture-design.md`
 - **Fast captioning investigation** — `docs/analysis/root-cause-analysis-slow-captioning.md`
 
 ## NDJSON Protocol
