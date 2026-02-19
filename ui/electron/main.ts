@@ -3,6 +3,7 @@ import { join } from 'path'
 import { execFileSync } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PythonBridge } from './python'
+import { ModelSetupManager } from './setup'
 
 let mainWindow: BrowserWindow | null = null
 const python = new PythonBridge()
@@ -38,16 +39,21 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.manole')
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
   createWindow()
 
+  const setup = new ModelSetupManager(python, mainWindow!)
+  const modelsDir = setup.getModelsDir()
+
   python.spawn((response) => {
     mainWindow?.webContents.send('python:message', response)
-  })
+  }, { MANOLE_MODELS_DIR: modelsDir })
+
+  await setup.checkAndDownload()
 
   ipcMain.handle('python:send', async (_event, method: string, params?: Record<string, unknown>) => {
     return python.send(method, params ?? {})

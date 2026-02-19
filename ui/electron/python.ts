@@ -31,7 +31,7 @@ export class PythonBridge {
     return { command: python, args: [serverPy] };
   }
 
-  spawn(onMessage: ResponseHandler): void {
+  spawn(onMessage: ResponseHandler, env?: Record<string, string>): void {
     const { command, args } = this.getPythonCommand();
     this.globalHandler = onMessage;
 
@@ -40,6 +40,7 @@ export class PythonBridge {
     this.process = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd,
+      env: { ...process.env, ...env },
     });
 
     const rl = createInterface({ input: this.process.stdout! });
