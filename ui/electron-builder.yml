@@ -8,12 +8,10 @@ files:
 extraResources:
   - from: "../dist/manole-server"
     to: "manole-server"
-  - from: "../models/"
-    to: "models/"
+  - from: "../models-manifest.json"
+    to: "models-manifest.json"
 mac:
   target: dmg
   category: public.app-category.productivity
-win:
-  target: nsis
 linux:
   target: AppImage
