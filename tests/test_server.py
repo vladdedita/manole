@@ -421,11 +421,12 @@ class TestCheckModels:
         # Create only the text model file
         (tmp_path / "text.gguf").write_bytes(b"\x00" * 1024)
 
-        with patch("server.load_manifest", return_value=manifest):
+        with patch("server.load_manifest", return_value=manifest), \
+             patch("server.get_models_dir", return_value=tmp_path):
             result = srv.dispatch({
                 "id": 1,
                 "method": "check_models",
-                "params": {"modelsDir": str(tmp_path)},
+                "params": {},
             })
 
         assert result["type"] == "result"
@@ -449,11 +450,12 @@ class TestCheckModels:
         }
         (tmp_path / "text.gguf").write_bytes(b"\x00" * 512)
 
-        with patch("server.load_manifest", return_value=manifest):
+        with patch("server.load_manifest", return_value=manifest), \
+             patch("server.get_models_dir", return_value=tmp_path):
             result = srv.dispatch({
                 "id": 1,
                 "method": "check_models",
-                "params": {"modelsDir": str(tmp_path)},
+                "params": {},
             })
 
         assert result["type"] == "result"
@@ -518,11 +520,12 @@ class TestDownloadModels:
                 return str(Path(local_dir) / filename)
 
             with patch("server.load_manifest", return_value=manifest), \
-                 patch("server.hf_hub_download", side_effect=fake_download):
+                 patch("server.hf_hub_download", side_effect=fake_download), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 result = srv.dispatch({
                     "id": 2,
                     "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
 
             assert result["type"] == "result"
@@ -564,11 +567,12 @@ class TestDownloadModels:
             (tmp_path / "text.gguf").write_bytes(b"\x00" * 1024)
 
             with patch("server.load_manifest", return_value=manifest), \
-                 patch("server.hf_hub_download") as mock_dl:
+                 patch("server.hf_hub_download") as mock_dl, \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 result = srv.dispatch({
                     "id": 2,
                     "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
 
             assert result["type"] == "result"
@@ -601,11 +605,12 @@ class TestDownloadModels:
 
             with patch("server.load_manifest", return_value=manifest), \
                  patch("server.hf_hub_download",
-                       side_effect=OSError("Network error")):
+                       side_effect=OSError("Network error")), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 result = srv.dispatch({
                     "id": 2,
                     "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
 
             # Should return error result
@@ -904,12 +909,13 @@ class TestSetupFlowIntegration:
                 return str(Path(local_dir) / filename)
 
             with patch("server.load_manifest", return_value=manifest), \
-                 patch("server.hf_hub_download", side_effect=fake_download):
+                 patch("server.hf_hub_download", side_effect=fake_download), \
+                 patch("server.get_models_dir", return_value=tmp_path):
 
                 # Step 1: check_models on empty dir -> not ready
                 r1 = srv.dispatch({
                     "id": 1, "method": "check_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
                 assert r1["type"] == "result"
                 assert r1["data"]["ready"] is False
@@ -919,7 +925,7 @@ class TestSetupFlowIntegration:
                 # Step 2: download_models -> all_models_ready
                 r2 = srv.dispatch({
                     "id": 2, "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
                 assert r2["type"] == "result"
                 assert r2["data"]["status"] == "all_models_ready"
@@ -934,7 +940,7 @@ class TestSetupFlowIntegration:
                 # Step 3: check_models again -> ready
                 r3 = srv.dispatch({
                     "id": 3, "method": "check_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
                 assert r3["type"] == "result"
                 assert r3["data"]["ready"] is True
@@ -973,10 +979,11 @@ class TestSetupFlowIntegration:
                     raise OSError("Connection lost")
 
             with patch("server.load_manifest", return_value=manifest), \
-                 patch("server.hf_hub_download", side_effect=fail_on_second):
+                 patch("server.hf_hub_download", side_effect=fail_on_second), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 r1 = srv.dispatch({
                     "id": 1, "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
             assert r1["type"] == "error"
             assert "model-b" in r1["data"]["message"]
@@ -996,10 +1003,11 @@ class TestSetupFlowIntegration:
                 return str(Path(local_dir) / filename)
 
             with patch("server.load_manifest", return_value=manifest), \
-                 patch("server.hf_hub_download", side_effect=track_download):
+                 patch("server.hf_hub_download", side_effect=track_download), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 r2 = srv.dispatch({
                     "id": 2, "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
             assert r2["type"] == "result"
             assert r2["data"]["status"] == "all_models_ready"
@@ -1027,10 +1035,11 @@ class TestSetupFlowIntegration:
             (tmp_path / "text.gguf").write_bytes(b"\x00" * 2048)
             (tmp_path / "vision.gguf").write_bytes(b"\x00" * 4096)
 
-            with patch("server.load_manifest", return_value=manifest):
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 result = srv.dispatch({
                     "id": 1, "method": "check_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
 
             assert result["type"] == "result"
@@ -1070,11 +1079,12 @@ class TestSetupFlowIntegration:
 
             with patch("server.load_manifest", return_value=manifest), \
                  patch("server.hf_hub_download",
-                       side_effect=network_should_not_be_called):
+                       side_effect=network_should_not_be_called), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 # check_models should work purely from disk
                 result = srv.dispatch({
                     "id": 1, "method": "check_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
 
             assert result["type"] == "result"
@@ -1083,10 +1093,11 @@ class TestSetupFlowIntegration:
             # download_models with all present should also not call network
             with patch("server.load_manifest", return_value=manifest), \
                  patch("server.hf_hub_download",
-                       side_effect=network_should_not_be_called):
+                       side_effect=network_should_not_be_called), \
+                 patch("server.get_models_dir", return_value=tmp_path):
                 result2 = srv.dispatch({
                     "id": 2, "method": "download_models",
-                    "params": {"modelsDir": str(tmp_path)},
+                    "params": {},
                 })
 
             assert result2["type"] == "result"

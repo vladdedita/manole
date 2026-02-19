@@ -6,8 +6,9 @@ from pathlib import Path
 class ToolBox:
     """Pure Python filesystem tools operating on the indexed data directory."""
 
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, debug: bool = False):
         self.root = Path(data_dir)
+        self.debug = debug
 
     def _time_cutoff(self, time_filter: str | None) -> float | None:
         if not time_filter:
@@ -25,7 +26,7 @@ class ToolBox:
 
     def _list_files(self, ext_filter: str | None = None, time_filter: str | None = None) -> list[Path]:
         pattern = f"**/*.{ext_filter}" if ext_filter else "**/*"
-        files = [f for f in self.root.glob(pattern) if f.is_file() and not f.name.startswith(".")]
+        files = [f for f in self.root.glob(pattern) if f.is_file() and not f.is_symlink() and not f.name.startswith(".")]
         cutoff = self._time_cutoff(time_filter)
         if cutoff:
             files = [f for f in files if f.stat().st_mtime >= cutoff]
@@ -33,12 +34,16 @@ class ToolBox:
 
     def count_files(self, ext_filter: str | None = None, time_filter: str | None = None) -> str:
         files = self._list_files(ext_filter, time_filter)
+        if self.debug:
+            print(f"  [TOOLBOX] count_files: ext={ext_filter} time={time_filter} → {len(files)} files")
         label = f".{ext_filter} " if ext_filter else ""
         return f"Found {len(files)} {label}files."
 
     def list_recent_files(self, ext_filter: str | None = None, time_filter: str | None = None,
                            limit: int = 10, sort_by: str = "date") -> str:
         files = self._list_files(ext_filter, time_filter)
+        if self.debug:
+            print(f"  [TOOLBOX] list_recent_files: ext={ext_filter} sort_by={sort_by} limit={limit} → {len(files)} files")
         if not files:
             return "No matching files found."
 
@@ -64,9 +69,11 @@ class ToolBox:
         return header + "\n" + "\n".join(lines)
 
     def get_file_metadata(self, name_hint: str | None = None) -> str:
-        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.is_symlink() and not f.name.startswith(".")]
         if name_hint:
             files = [f for f in files if name_hint.lower() in f.name.lower()]
+        if self.debug:
+            print(f"  [TOOLBOX] get_file_metadata: hint={name_hint!r} → {len(files)} matches")
         if not files:
             return "No matching files found."
         lines = []
@@ -79,8 +86,12 @@ class ToolBox:
         return "File metadata:\n" + "\n".join(lines)
 
     def tree(self, max_depth: int | None = None) -> str:
+        if self.debug:
+            print(f"  [TOOLBOX] tree: max_depth={max_depth}")
         lines = [f"{self.root.name}/"]
         self._tree_recurse(self.root, "", 0, max_depth, lines)
+        if self.debug:
+            print(f"  [TOOLBOX] tree: {len(lines)} lines")
         return "\n".join(lines)
 
     def _tree_recurse(self, path: Path, prefix: str, depth: int, max_depth: int | None, lines: list):
@@ -95,8 +106,10 @@ class ToolBox:
                 self._tree_recurse(entry, prefix + extension, depth + 1, max_depth, lines)
 
     def grep(self, pattern: str) -> str:
-        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.is_symlink() and not f.name.startswith(".")]
         matches = [f for f in files if pattern.lower() in f.name.lower()]
+        if self.debug:
+            print(f"  [TOOLBOX] grep: pattern={pattern!r} → {len(matches)} matches")
         if not matches:
             return f"No files matching '{pattern}'."
         lines = [f"  - {f.relative_to(self.root)}" for f in matches[:20]]
@@ -109,7 +122,7 @@ class ToolBox:
 
     def grep_paths(self, pattern: str, limit: int = 20) -> list[Path]:
         """Find files by name pattern. Returns Path objects."""
-        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.is_symlink() and not f.name.startswith(".")]
         matches = [f for f in files if pattern.lower() in f.name.lower()]
         return matches[:limit]
 
@@ -117,6 +130,8 @@ class ToolBox:
                      extension: str | None = None, order: str = "desc") -> str:
         """Aggregate size and file count per folder."""
         files = self._list_files(ext_filter=extension)
+        if self.debug:
+            print(f"  [TOOLBOX] folder_stats: sort_by={sort_by} limit={limit} ext={extension} order={order}")
         if not files:
             return "No files found."
 
@@ -132,6 +147,8 @@ class ToolBox:
         key = "size" if sort_by == "size" else "count"
         descending = order != "asc"
         ranked = sorted(folders.items(), key=lambda x: x[1][key], reverse=descending)
+        if self.debug:
+            print(f"  [TOOLBOX] folder_stats: found {len(folders)} folders, returning top {min(limit, len(ranked))}")
 
         total_size = sum(v["size"] for v in folders.values())
         total_count = sum(v["count"] for v in folders.values())
@@ -145,7 +162,11 @@ class ToolBox:
 
     def disk_usage(self) -> str:
         """Total disk usage summary with breakdown by extension."""
-        files = [f for f in self.root.rglob("*") if f.is_file() and not f.name.startswith(".")]
+        if self.debug:
+            print(f"  [TOOLBOX] disk_usage: scanning {self.root}")
+        files = [f for f in self.root.rglob("*") if f.is_file() and not f.is_symlink() and not f.name.startswith(".")]
+        if self.debug:
+            print(f"  [TOOLBOX] disk_usage: {len(files)} files found")
         if not files:
             return "No files found."
 

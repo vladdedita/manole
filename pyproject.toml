@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "docling>=2.70",
+    "huggingface-hub>=0.20",
     "leann>=0.3.6",
     "llama-cpp-python>=0.3.0",
+    "pillow-heif>=0.18",
     "torchvision>=0.25.0",
     "transformers>=4.55",
 ]

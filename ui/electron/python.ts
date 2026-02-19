@@ -37,10 +37,26 @@ export class PythonBridge {
 
     const cwd = this.getProjectRoot();
     console.error(`[python] spawning: ${command} ${args.join(" ")} (cwd: ${cwd})`);
+    // Construct minimal environment — only pass what the Python process needs
+    const minimalEnv: Record<string, string | undefined> = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      LANG: process.env.LANG,
+      PYTHONPATH: process.env.PYTHONPATH,
+      PYTHONHOME: process.env.PYTHONHOME,
+      VIRTUAL_ENV: process.env.VIRTUAL_ENV,
+      TMPDIR: process.env.TMPDIR,
+      ...env,
+    };
+    // Remove undefined entries
+    for (const key of Object.keys(minimalEnv)) {
+      if (minimalEnv[key] === undefined) delete minimalEnv[key];
+    }
+
     this.process = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd,
-      env: { ...process.env, ...env },
+      env: minimalEnv as NodeJS.ProcessEnv,
     });
 
     const rl = createInterface({ input: this.process.stdout! });

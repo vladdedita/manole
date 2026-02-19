@@ -95,5 +95,10 @@ events:
   s: EXECUTED
   sid: 01-02
   t: '2026-02-18T08:27:59Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 01-02
+  t: '2026-02-18T08:28:10Z'
 project_id: vl-index-search
 schema_version: '3.0'

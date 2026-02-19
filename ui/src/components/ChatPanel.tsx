@@ -9,23 +9,7 @@ interface ChatPanelProps {
   error: string | null;
   onSend: (text: string) => void;
   onOpenFolder: () => void;
-}
-
-function TypingIndicator() {
-  return (
-    <div className="flex justify-start">
-      <div className="flex items-center gap-1.5 px-4 py-3 rounded-2xl rounded-bl-md bg-bg-tertiary border border-border">
-        {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            className="inline-block h-2 w-2 rounded-full bg-accent"
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{ duration: 1, repeat: Infinity, delay: i * 0.15 }}
-          />
-        ))}
-      </div>
-    </div>
-  );
+  indexingMessage?: string;
 }
 
 function WelcomeScreen({ onOpenFolder }: { onOpenFolder: () => void }) {
@@ -82,6 +66,7 @@ export function ChatPanel({
   error,
   onSend,
   onOpenFolder,
+  indexingMessage,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [showNewMessage, setShowNewMessage] = useState(false);
@@ -123,11 +108,6 @@ export function ChatPanel({
     setInput("");
   };
 
-  const showTypingIndicator =
-    isLoading &&
-    messages.length > 0 &&
-    messages[messages.length - 1]?.role === "assistant" &&
-    messages[messages.length - 1]?.text === "";
 
   const hasMessages = messages.length > 0;
 
@@ -148,8 +128,21 @@ export function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Message area or welcome */}
-      {!hasMessages ? (
+      {/* Message area, indexing state, or welcome */}
+      {indexingMessage ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex items-center gap-3">
+            <motion.span
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              className="inline-block h-2 w-2 rounded-full bg-warning"
+            />
+            <span className="font-sans text-sm text-text-secondary">
+              {indexingMessage}
+            </span>
+          </div>
+        </div>
+      ) : !hasMessages ? (
         <WelcomeScreen onOpenFolder={onOpenFolder} />
       ) : (
         <div className="relative flex-1 min-h-0">
@@ -166,7 +159,6 @@ export function ChatPanel({
               ))}
             </AnimatePresence>
 
-            {showTypingIndicator && <TypingIndicator />}
           </div>
 
           {/* New message pill */}

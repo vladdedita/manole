@@ -14,6 +14,7 @@ wheels/
 
 # OS files
 .DS_Store
+Thumbs.db
 
 # Generated description files
 *.description.txt
@@ -23,3 +24,16 @@ test_data/
 
 # GGUF models
 models/
+
+# Tool/agent config directories
+.claude/
+.serena/
+.nwave/
+
+# Node (root-level, not ui/)
+/node_modules/
+/package.json
+/package-lock.json
+
+# Build artifacts
+*.tsbuildinfo

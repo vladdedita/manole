@@ -84,42 +84,123 @@ def compute_similarity_edges(
     return edges
 
 
+_EMAIL_RE = re.compile(r"\b[\w.-]+@[\w.-]+\.\w{2,}\b")
+_TAX_ID_RE = re.compile(
+    r"\b(?:CIF|VAT|TIN|CUI|RO|IE)\s*[\d]{6,12}\b", re.IGNORECASE
+)
+_IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b")
+_COMPANY_SUFFIX_RE = re.compile(
+    r"\b([A-Z][\w.-]+(?:\s+[A-Z][\w.-]+)+)"
+    r"\s+(?:SRL|LLC|Ltd|GmbH|Inc|SA|SCA|PLC|Corp|Co)\b"
+)
+
+ENTITY_WEIGHTS = {
+    "email": 1.0,
+    "tax_id": 0.9,
+    "iban": 0.8,
+    "company": 0.7,
+    "filename": 1.0,
+}
+
+
+def extract_entities(text: str) -> dict[str, set[str]]:
+    """Extract structured entities from text using regex patterns.
+
+    Returns dict mapping entity type to set of normalized entity values.
+    """
+    entities: dict[str, set[str]] = {
+        "email": set(),
+        "tax_id": set(),
+        "iban": set(),
+        "company": set(),
+    }
+
+    for m in _EMAIL_RE.finditer(text):
+        entities["email"].add(m.group().lower())
+
+    for m in _TAX_ID_RE.finditer(text):
+        digits = re.sub(r"[^\d]", "", m.group())
+        entities["tax_id"].add(digits)
+
+    for m in _IBAN_RE.finditer(text):
+        entities["iban"].add(m.group().upper())
+
+    for m in _COMPANY_SUFFIX_RE.finditer(text):
+        name = m.group(1).strip()
+        if len(name) >= 4:
+            entities["company"].add(name.upper())
+
+    # Remove empty categories
+    return {k: v for k, v in entities.items() if v}
+
+
 def compute_reference_edges(
     passages_by_file: dict[str, list[str]],
     file_ids: set[str],
 ) -> list[dict]:
-    """Detect explicit references between files by scanning passage text."""
+    """Detect references between files via shared entities and filename mentions."""
+    # Phase 1: Extract entities per file
+    entities_by_file: dict[str, dict[str, set[str]]] = {}
+    for fid, texts in passages_by_file.items():
+        combined = " ".join(texts)
+        entities_by_file[fid] = extract_entities(combined)
+
+    # Phase 2: Build inverted index — entity -> set of file IDs
+    inverted: dict[tuple[str, str], set[str]] = {}
+    for fid, ent_map in entities_by_file.items():
+        for ent_type, values in ent_map.items():
+            for val in values:
+                key = (ent_type, val)
+                inverted.setdefault(key, set()).add(fid)
+
+    # Phase 3: Create edges from shared entities
+    best_edges: dict[tuple[str, str], dict] = {}
+
+    for (ent_type, ent_val), fids in inverted.items():
+        if len(fids) < 2:
+            continue
+        weight = ENTITY_WEIGHTS.get(ent_type, 0.5)
+        fid_list = sorted(fids)
+        for i, src in enumerate(fid_list):
+            for tgt in fid_list[i + 1:]:
+                pair = (src, tgt)
+                existing = best_edges.get(pair)
+                if existing is None or weight > existing["weight"]:
+                    best_edges[pair] = {
+                        "source": src,
+                        "target": tgt,
+                        "type": "reference",
+                        "weight": weight,
+                        "label": f"shared {ent_type}: {ent_val}",
+                    }
+
+    # Phase 4: Filename-mention detection (original logic, as additional signal)
     name_to_ids: dict[str, set[str]] = {}
     for fid in file_ids:
         name = PurePosixPath(fid).name
         name_to_ids.setdefault(name, set()).add(fid)
-
-    edges = []
-    seen = set()
 
     for source_id, texts in passages_by_file.items():
         combined = " ".join(texts)
         for name, target_ids in name_to_ids.items():
             if len(name) < 4:
                 continue
-            pattern = re.escape(name)
-            if re.search(pattern, combined, re.IGNORECASE):
+            if re.search(re.escape(name), combined, re.IGNORECASE):
                 for target_id in target_ids:
                     if target_id == source_id:
                         continue
-                    pair = (source_id, target_id)
-                    if pair in seen:
-                        continue
-                    seen.add(pair)
-                    edges.append({
-                        "source": source_id,
-                        "target": target_id,
-                        "type": "reference",
-                        "weight": 1.0,
-                        "label": f"mentions {name}",
-                    })
+                    pair = tuple(sorted((source_id, target_id)))
+                    existing = best_edges.get(pair)
+                    if existing is None or ENTITY_WEIGHTS["filename"] > existing["weight"]:
+                        best_edges[pair] = {
+                            "source": source_id,
+                            "target": target_id,
+                            "type": "reference",
+                            "weight": ENTITY_WEIGHTS["filename"],
+                            "label": f"mentions {name}",
+                        }
 
-    return edges
+    return list(best_edges.values())
 
 
 def compute_structure_edges(file_ids: list[str]) -> tuple[list[dict], list[dict]]:

@@ -85,6 +85,50 @@ class TestSimilarityEdges:
             assert e["source"] != e["target"]
 
 
+class TestExtractEntities:
+    """Test entity extraction from text."""
+
+    def test_extracts_emails(self):
+        from graph import extract_entities
+        entities = extract_entities("Contact us at billing@anthropic.com or support@openai.com")
+        assert "email" in entities
+        assert "billing@anthropic.com" in entities["email"]
+        assert "support@openai.com" in entities["email"]
+
+    def test_extracts_tax_ids(self):
+        from graph import extract_entities
+        entities = extract_entities("CUI 48862329 registered in Romania. VAT RO48862329.")
+        assert "tax_id" in entities
+        assert "48862329" in entities["tax_id"]
+
+    def test_extracts_iban(self):
+        from graph import extract_entities
+        entities = extract_entities("Pay to IBAN: RO49AAAA1B31007593840000")
+        assert "iban" in entities
+        assert "RO49AAAA1B31007593840000" in entities["iban"]
+
+    def test_extracts_company_names(self):
+        from graph import extract_entities
+        entities = extract_entities("Invoice from Acme International Corp for services")
+        assert "company" in entities
+        assert "ACME INTERNATIONAL" in entities["company"]
+
+    def test_empty_text_returns_empty(self):
+        from graph import extract_entities
+        entities = extract_entities("")
+        assert entities == {}
+
+    def test_normalizes_emails_lowercase(self):
+        from graph import extract_entities
+        entities = extract_entities("Email: Admin@Company.COM")
+        assert "admin@company.com" in entities["email"]
+
+    def test_normalizes_company_names_uppercase(self):
+        from graph import extract_entities
+        entities = extract_entities("Billed by Cloud Services LLC")
+        assert "CLOUD SERVICES" in entities["company"]
+
+
 class TestReferenceEdges:
     """Test explicit reference detection."""
 
@@ -97,9 +141,9 @@ class TestReferenceEdges:
         file_ids = {"readme.md", "report.pdf"}
         edges = compute_reference_edges(passages_by_file, file_ids)
         assert len(edges) >= 1
-        assert edges[0]["source"] == "readme.md"
-        assert edges[0]["target"] == "report.pdf"
-        assert edges[0]["type"] == "reference"
+        ref_edges = [e for e in edges if "mentions" in e.get("label", "")]
+        assert len(ref_edges) >= 1
+        assert ref_edges[0]["type"] == "reference"
 
     def test_no_self_references(self):
         from graph import compute_reference_edges
@@ -109,6 +153,69 @@ class TestReferenceEdges:
         file_ids = {"readme.md"}
         edges = compute_reference_edges(passages_by_file, file_ids)
         assert len(edges) == 0
+
+    def test_detects_shared_email(self):
+        from graph import compute_reference_edges
+        passages_by_file = {
+            "invoice1.pdf": ["Billed to client@example.com"],
+            "invoice2.pdf": ["Payment from client@example.com"],
+            "unrelated.pdf": ["No entities here"],
+        }
+        file_ids = set(passages_by_file.keys())
+        edges = compute_reference_edges(passages_by_file, file_ids)
+        pairs = {(e["source"], e["target"]) for e in edges}
+        assert ("invoice1.pdf", "invoice2.pdf") in pairs
+        # unrelated should not connect
+        for e in edges:
+            assert "unrelated.pdf" not in (e["source"], e["target"])
+
+    def test_detects_shared_tax_id(self):
+        from graph import compute_reference_edges
+        passages_by_file = {
+            "receipt.pdf": ["CUI 48862329 company details"],
+            "statement.pdf": ["Tax ID CUI 48862329 on record"],
+        }
+        file_ids = set(passages_by_file.keys())
+        edges = compute_reference_edges(passages_by_file, file_ids)
+        assert len(edges) >= 1
+        assert edges[0]["type"] == "reference"
+        assert "tax_id" in edges[0]["label"]
+
+    def test_detects_shared_company_name(self):
+        from graph import compute_reference_edges
+        passages_by_file = {
+            "inv_a.pdf": ["Invoice from Cloud Services LLC"],
+            "inv_b.pdf": ["Payment to Cloud Services LLC"],
+        }
+        file_ids = set(passages_by_file.keys())
+        edges = compute_reference_edges(passages_by_file, file_ids)
+        assert len(edges) >= 1
+        assert "company" in edges[0]["label"]
+
+    def test_deduplicates_edges_keeps_highest_weight(self):
+        from graph import compute_reference_edges, ENTITY_WEIGHTS
+        passages_by_file = {
+            "a.pdf": ["Contact: info@acme.com CUI 12345678 Acme Corp SRL"],
+            "b.pdf": ["From: info@acme.com CUI 12345678 Acme Corp SRL"],
+        }
+        file_ids = set(passages_by_file.keys())
+        edges = compute_reference_edges(passages_by_file, file_ids)
+        # Should produce exactly one edge per file pair
+        assert len(edges) == 1
+        # Email has highest weight (1.0), should win
+        assert edges[0]["weight"] == ENTITY_WEIGHTS["email"]
+
+    def test_multiple_file_pairs_from_shared_entity(self):
+        from graph import compute_reference_edges
+        passages_by_file = {
+            "a.pdf": ["CUI 99887766"],
+            "b.pdf": ["CUI 99887766"],
+            "c.pdf": ["CUI 99887766"],
+        }
+        file_ids = set(passages_by_file.keys())
+        edges = compute_reference_edges(passages_by_file, file_ids)
+        # 3 files sharing one entity -> 3 edges (a-b, a-c, b-c)
+        assert len(edges) == 3
 
 
 class TestStructureEdges:

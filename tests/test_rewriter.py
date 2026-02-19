@@ -132,6 +132,6 @@ def test_rewriter_system_has_file_folder_distinction_instruction():
 def test_rewriter_system_has_standalone_image_query_example():
     """Prompt contains an example for a standalone image query with visual synonym expansion."""
     # Must have a standalone image query (not follow-up) with visual synonyms
-    assert "cat drawing" in REWRITER_SYSTEM.lower() or "cat drawings" in REWRITER_SYSTEM.lower()
+    assert '"any images?"' in REWRITER_SYSTEM
     assert "illustration" in REWRITER_SYSTEM
-    assert "sketch" in REWRITER_SYSTEM
+    assert "photograph" in REWRITER_SYSTEM

@@ -25,9 +25,9 @@ REWRITER_SYSTEM = (
     'Question: "how many eggs in carbonara"\n'
     '{"intent": "factual", "search_query": "carbonara recipe eggs ingredients", '
     '"resolved_query": "How many eggs does the carbonara recipe call for according to my files?"}\n\n'
-    'Question: "any cat drawings?"\n'
-    '{"intent": "list", "search_query": "cat drawing sketch feline artwork illustration photo image", '
-    '"resolved_query": "Are there any cat drawings or images of cats in my files?"}\n\n'
+    'Question: "any images?"\n'
+    '{"intent": "list", "search_query": "image photo picture photograph illustration drawing", '
+    '"resolved_query": "Are there any images or pictures in my files?"}\n\n'
     "With conversation history:\n"
     'Recent conversation:\n'
     '  User: any animal pictures?\n'

@@ -19,5 +19,10 @@ events:
   s: EXECUTED
   sid: 01-01
   t: '2026-02-17T17:53:19Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 01-01
+  t: '2026-02-17T17:53:35Z'
 project_id: moondream2-vision-switch
 schema_version: '3.0'

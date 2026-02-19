@@ -36,5 +36,9 @@ export function usePython() {
     return () => { handlersRef.current.delete(handler); };
   }, []);
 
-  return { send, subscribe, backendState, logs };
+  const resetBackendState = useCallback(() => {
+    setBackendState("not_initialized");
+  }, []);
+
+  return { send, subscribe, backendState, logs, resetBackendState };
 }

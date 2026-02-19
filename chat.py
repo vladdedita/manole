@@ -17,7 +17,8 @@ from pathlib import Path
 
 
 def get_index_name(data_dir: Path) -> str:
-    return data_dir.name.replace(" ", "_").replace("/", "_")
+    import re
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", data_dir.name)
 
 
 def build_index(data_dir: Path, force: bool = False) -> str:
@@ -29,6 +30,7 @@ def build_index(data_dir: Path, force: bool = False) -> str:
         str(leann_bin),
         "build", index_name,
         "--docs", str(data_dir),
+        "--no-compact",
     ]
     if force:
         cmd.append("--force")
@@ -96,15 +98,15 @@ def chat_loop(index_name: str, data_dir: str):
     # Create search and tools
     leann_searcher = LeannSearcher(index_path, enable_warmup=True)
     file_reader = FileReader()
-    toolbox = ToolBox(data_dir)
+    toolbox = ToolBox(data_dir, debug=True)
     searcher = Searcher(leann_searcher, model, file_reader=file_reader, toolbox=toolbox, debug=True)
-    tool_registry = ToolRegistry(searcher, toolbox)
+    tool_registry = ToolRegistry(searcher, toolbox, debug=True)
 
     # Create router (module-level function wrapped for Agent interface)
     class RouterWrapper:
         @staticmethod
         def route(query, intent=None):
-            return route(query, intent=intent)
+            return route(query, intent=intent, debug=agent.debug)
 
     # Create rewriter and agent
     rewriter = QueryRewriter(model, debug=True)
@@ -134,6 +136,8 @@ def chat_loop(index_name: str, data_dir: str):
             agent.debug = not agent.debug
             searcher.debug = agent.debug
             rewriter.debug = agent.debug
+            tool_registry.debug = agent.debug
+            toolbox.debug = agent.debug
             print(f"Trace: {'ON' if agent.debug else 'OFF'}")
             continue
 

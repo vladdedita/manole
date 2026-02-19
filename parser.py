@@ -3,7 +3,7 @@ import json
 import re
 
 
-def parse_json(text: str) -> dict | None:
+def parse_json(text: str, debug: bool = False) -> dict | None:
     """Parse JSON from LLM output with fallback regex extraction.
 
     Tries three strategies:
@@ -13,7 +13,10 @@ def parse_json(text: str) -> dict | None:
     """
     # Try direct parse
     try:
-        return json.loads(text.strip())
+        result = json.loads(text.strip())
+        if debug:
+            print("  [PARSER] Strategy: direct JSON parse")
+        return result
     except (json.JSONDecodeError, ValueError):
         pass
 
@@ -24,7 +27,10 @@ def parse_json(text: str) -> dict | None:
             last_brace = text.rfind('}', i)
             while last_brace > i:
                 try:
-                    return json.loads(text[i:last_brace + 1])
+                    result = json.loads(text[i:last_brace + 1])
+                    if debug:
+                        print(f"  [PARSER] Strategy: brace extraction at pos {i}")
+                    return result
                 except (json.JSONDecodeError, ValueError):
                     # Shrink: try the next } inward
                     last_brace = text.rfind('}', i, last_brace)
@@ -38,6 +44,10 @@ def parse_json(text: str) -> dict | None:
         facts = []
         if facts_match:
             facts = [f.strip().strip('"') for f in facts_match.group(1).split(",") if f.strip()]
+        if debug:
+            print(f"  [PARSER] Strategy: regex fallback (relevant={relevant}, {len(facts)} facts)")
         return {"relevant": relevant, "facts": facts}
 
+    if debug:
+        print(f"  [PARSER] All strategies failed for: {text[:80]!r}")
     return None
