@@ -858,6 +858,244 @@ def _make_init_context(tmp_path, mock_searcher_inst, mock_captioner_cls=None,
     return stack
 
 
+class TestSetupFlowIntegration:
+    """Integration: verify the complete first-launch setup flow end-to-end.
+
+    Test Budget: 5 behaviors x 2 = 10 max. Using 5 tests.
+    Behaviors:
+      1. Fresh install triggers setup (check_models -> not ready -> download -> ready)
+      2. App transitions to normal after setup (check_models returns ready)
+      3. Resume after interruption (partial downloads survive, only missing re-downloaded)
+      4. Second launch skips setup (all models present -> ready immediately)
+      5. Fully offline after download (check_models needs no network)
+    """
+
+    def _make_manifest(self, models):
+        return {"version": 1, "models": models}
+
+    def _capture_send(self, srv_mod):
+        """Patch send() to capture NDJSON events, return (sent_list, cleanup_fn)."""
+        sent = []
+        original = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append(
+            {"id": rid, "type": rtype, "data": data}
+        )
+        return sent, original
+
+    def test_fresh_install_check_download_check_flow(self, tmp_path):
+        """Fresh install: check_models=not ready, download_models completes,
+        check_models=ready. Covers AC1 + AC2."""
+        from server import Server
+        import server as srv_mod
+
+        sent, original_send = self._capture_send(srv_mod)
+        try:
+            srv = Server()
+            manifest = self._make_manifest([
+                {"id": "text-model", "filename": "text.gguf",
+                 "repo_id": "test/repo", "required": True},
+                {"id": "vision-model", "filename": "vision.gguf",
+                 "repo_id": "test/repo2", "required": True},
+            ])
+
+            def fake_download(repo_id, filename, local_dir, **kwargs):
+                Path(local_dir).mkdir(parents=True, exist_ok=True)
+                (Path(local_dir) / filename).write_bytes(b"\x00" * 1024)
+                return str(Path(local_dir) / filename)
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download", side_effect=fake_download):
+
+                # Step 1: check_models on empty dir -> not ready
+                r1 = srv.dispatch({
+                    "id": 1, "method": "check_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+                assert r1["type"] == "result"
+                assert r1["data"]["ready"] is False
+                missing = [m for m in r1["data"]["models"] if not m["exists"]]
+                assert len(missing) == 2
+
+                # Step 2: download_models -> all_models_ready
+                r2 = srv.dispatch({
+                    "id": 2, "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+                assert r2["type"] == "result"
+                assert r2["data"]["status"] == "all_models_ready"
+
+                # Verify progress events: downloading + complete for each model
+                progress = [m for m in sent if m["type"] == "setup_progress"]
+                downloading = [e for e in progress if e["data"]["status"] == "downloading"]
+                complete = [e for e in progress if e["data"]["status"] == "complete"]
+                assert len(downloading) == 2
+                assert len(complete) == 2
+
+                # Step 3: check_models again -> ready
+                r3 = srv.dispatch({
+                    "id": 3, "method": "check_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+                assert r3["type"] == "result"
+                assert r3["data"]["ready"] is True
+                present = [m for m in r3["data"]["models"] if m["exists"]]
+                assert len(present) == 2
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_resume_after_interruption(self, tmp_path):
+        """AC3: Kill mid-download, relaunch resumes without re-downloading
+        completed models."""
+        from server import Server
+        import server as srv_mod
+
+        sent, original_send = self._capture_send(srv_mod)
+        try:
+            srv = Server()
+            manifest = self._make_manifest([
+                {"id": "model-a", "filename": "a.gguf",
+                 "repo_id": "r/a", "required": True},
+                {"id": "model-b", "filename": "b.gguf",
+                 "repo_id": "r/b", "required": True},
+            ])
+
+            # First attempt: model-a succeeds, model-b fails (simulates crash)
+            call_count = [0]
+
+            def fail_on_second(repo_id, filename, local_dir, **kwargs):
+                call_count[0] += 1
+                Path(local_dir).mkdir(parents=True, exist_ok=True)
+                if filename == "a.gguf":
+                    (Path(local_dir) / filename).write_bytes(b"\x00" * 512)
+                    return str(Path(local_dir) / filename)
+                else:
+                    raise OSError("Connection lost")
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download", side_effect=fail_on_second):
+                r1 = srv.dispatch({
+                    "id": 1, "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+            assert r1["type"] == "error"
+            assert "model-b" in r1["data"]["message"]
+
+            # Verify a.gguf exists on disk (survived the "crash")
+            assert (tmp_path / "a.gguf").is_file()
+            assert not (tmp_path / "b.gguf").is_file()
+
+            # Second attempt: should skip a.gguf, only download b.gguf
+            sent.clear()
+            download_calls = []
+
+            def track_download(repo_id, filename, local_dir, **kwargs):
+                download_calls.append(filename)
+                Path(local_dir).mkdir(parents=True, exist_ok=True)
+                (Path(local_dir) / filename).write_bytes(b"\x00" * 512)
+                return str(Path(local_dir) / filename)
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download", side_effect=track_download):
+                r2 = srv.dispatch({
+                    "id": 2, "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+            assert r2["type"] == "result"
+            assert r2["data"]["status"] == "all_models_ready"
+            # Only b.gguf should have been downloaded
+            assert download_calls == ["b.gguf"]
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_second_launch_skips_setup(self, tmp_path):
+        """AC4: Second launch with all models present skips SetupScreen entirely."""
+        from server import Server
+        import server as srv_mod
+
+        sent, original_send = self._capture_send(srv_mod)
+        try:
+            srv = Server()
+            manifest = self._make_manifest([
+                {"id": "text-model", "filename": "text.gguf",
+                 "repo_id": "r/t", "required": True},
+                {"id": "vision-model", "filename": "vision.gguf",
+                 "repo_id": "r/v", "required": True},
+            ])
+            # Pre-create all model files (simulating previous successful download)
+            (tmp_path / "text.gguf").write_bytes(b"\x00" * 2048)
+            (tmp_path / "vision.gguf").write_bytes(b"\x00" * 4096)
+
+            with patch("server.load_manifest", return_value=manifest):
+                result = srv.dispatch({
+                    "id": 1, "method": "check_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+
+            assert result["type"] == "result"
+            assert result["data"]["ready"] is True
+            # Verify all models reported as present with correct sizes
+            models = {m["id"]: m for m in result["data"]["models"]}
+            assert models["text-model"]["exists"] is True
+            assert models["text-model"]["size_bytes"] == 2048
+            assert models["vision-model"]["exists"] is True
+            assert models["vision-model"]["size_bytes"] == 4096
+
+            # No setup_progress events should be needed
+            progress = [m for m in sent if m["type"] == "setup_progress"]
+            assert len(progress) == 0
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_fully_offline_after_download(self, tmp_path):
+        """AC5: After models downloaded, check_models works with no network.
+        Verified by patching hf_hub_download to raise if called."""
+        from server import Server
+        import server as srv_mod
+
+        sent, original_send = self._capture_send(srv_mod)
+        try:
+            srv = Server()
+            manifest = self._make_manifest([
+                {"id": "model-a", "filename": "a.gguf",
+                 "repo_id": "r/a", "required": True},
+            ])
+            # Pre-create model file
+            (tmp_path / "a.gguf").write_bytes(b"\x00" * 1024)
+
+            def network_should_not_be_called(**kwargs):
+                raise RuntimeError("No network available - should not be called")
+
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download",
+                       side_effect=network_should_not_be_called):
+                # check_models should work purely from disk
+                result = srv.dispatch({
+                    "id": 1, "method": "check_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+
+            assert result["type"] == "result"
+            assert result["data"]["ready"] is True
+
+            # download_models with all present should also not call network
+            with patch("server.load_manifest", return_value=manifest), \
+                 patch("server.hf_hub_download",
+                       side_effect=network_should_not_be_called):
+                result2 = srv.dispatch({
+                    "id": 2, "method": "download_models",
+                    "params": {"modelsDir": str(tmp_path)},
+                })
+
+            assert result2["type"] == "result"
+            assert result2["data"]["status"] == "all_models_ready"
+
+        finally:
+            srv_mod.send = original_send
+
+
 class TestEagerVisionLoading:
     """Test that server eagerly loads vision model during init."""
 
