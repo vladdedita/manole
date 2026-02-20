@@ -149,6 +149,59 @@ setup_node_env() {
   ok "Node environment ready"
 }
 
+# ── Model download (idempotent) ────────────────────────────────────
+
+ensure_models() {
+  step "AI models"
+  local models_dir="$SCRIPT_DIR/models"
+  local manifest="$SCRIPT_DIR/models-manifest.json"
+  local all_present=true
+
+  mkdir -p "$models_dir"
+
+  # Parse manifest and check/download each required model
+  local count
+  count="$(.venv/bin/python3 -c "
+import json
+m = json.load(open('$manifest'))
+print(len([x for x in m['models'] if x.get('required', False)]))
+")"
+
+  for i in $(seq 0 $((count - 1))); do
+    local model_info
+    model_info="$(.venv/bin/python3 -c "
+import json
+m = json.load(open('$manifest'))
+models = [x for x in m['models'] if x.get('required', False)]
+e = models[$i]
+print(f\"{e['id']}|{e['filename']}|{e['repo_id']}\")
+")"
+
+    local model_id filename repo_id
+    model_id="$(echo "$model_info" | cut -d'|' -f1)"
+    filename="$(echo "$model_info" | cut -d'|' -f2)"
+    repo_id="$(echo "$model_info" | cut -d'|' -f3)"
+
+    if [[ -f "$models_dir/$filename" ]]; then
+      ok "$model_id: already downloaded"
+    else
+      all_present=false
+      info "$model_id: downloading $filename from $repo_id..."
+      .venv/bin/python3 -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id='$repo_id', filename='$filename', local_dir='$models_dir')
+"
+      ok "$model_id: download complete"
+    fi
+  done
+
+  if [[ "$all_present" == true ]]; then
+    ok "All models present"
+  else
+    ok "Model downloads finished"
+  fi
+}
+
 # ── Launch ──────────────────────────────────────────────────────────
 
 launch() {
@@ -176,6 +229,7 @@ main() {
   ensure_uv
 
   setup_python_env
+  ensure_models
   setup_node_env
   launch
 }
