@@ -65,6 +65,33 @@ class KreuzbergIndexer:
         page_number = elem_meta.get("page_number")
         return page_number, element_type
 
+    def _add_file_chunks(
+        self, builder: LeannBuilder, result, file_path: Path, data_dir: Path
+    ) -> int:
+        """Add all chunks from an extraction result to the builder.
+
+        Returns the number of chunks added.
+        """
+        elements = result.elements or []
+        chunk_count = 0
+        for i, chunk in enumerate(result.chunks):
+            chunk_index = chunk.metadata.get("chunk_index", i)
+            page_number, element_type = self._extract_element_metadata(elements, i)
+
+            builder.add_text(
+                text=chunk.content,
+                metadata={
+                    "source": str(file_path.relative_to(data_dir)),
+                    "file_name": file_path.name,
+                    "file_type": file_path.suffix.lstrip("."),
+                    "page_number": page_number,
+                    "element_type": element_type,
+                    "chunk_index": chunk_index,
+                },
+            )
+            chunk_count += 1
+        return chunk_count
+
     def _index_path(self, index_name: str) -> str:
         """Return the standard index file path for a given index name."""
         return str(Path(".leann") / "indexes" / index_name / "documents.leann")
@@ -137,25 +164,8 @@ class KreuzbergIndexer:
                 continue
 
             files_processed += 1
-            file_chunk_count = 0
-            elements = result.elements or []
-            for i, chunk in enumerate(result.chunks):
-                chunk_index = chunk.metadata.get("chunk_index", i)
-                page_number, element_type = self._extract_element_metadata(elements, i)
-
-                builder.add_text(
-                    text=chunk.content,
-                    metadata={
-                        "source": str(file_path.relative_to(data_dir)),
-                        "file_name": file_path.name,
-                        "file_type": file_path.suffix.lstrip("."),
-                        "page_number": page_number,
-                        "element_type": element_type,
-                        "chunk_index": chunk_index,
-                    },
-                )
-                total_chunks += 1
-                file_chunk_count += 1
+            file_chunk_count = self._add_file_chunks(builder, result, file_path, data_dir)
+            total_chunks += file_chunk_count
 
             rel_path = str(file_path.relative_to(data_dir))
             file_records[rel_path] = {
@@ -198,25 +208,8 @@ class KreuzbergIndexer:
                 print(f"  No chunks: {file_path.name}")
                 continue
 
-            file_chunk_count = 0
-            elements = result.elements or []
-            for i, chunk in enumerate(result.chunks):
-                chunk_index = chunk.metadata.get("chunk_index", i)
-                page_number, element_type = self._extract_element_metadata(elements, i)
-
-                builder.add_text(
-                    text=chunk.content,
-                    metadata={
-                        "source": str(file_path.relative_to(data_dir)),
-                        "file_name": file_path.name,
-                        "file_type": file_path.suffix.lstrip("."),
-                        "page_number": page_number,
-                        "element_type": element_type,
-                        "chunk_index": chunk_index,
-                    },
-                )
-                total_chunks += 1
-                file_chunk_count += 1
+            file_chunk_count = self._add_file_chunks(builder, result, file_path, data_dir)
+            total_chunks += file_chunk_count
 
             rel_path = str(file_path.relative_to(data_dir))
             file_records[rel_path] = {

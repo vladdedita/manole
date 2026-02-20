@@ -1,6 +1,5 @@
 """Tests for KreuzbergIndexer.start_watcher() and full incremental reindexing flow."""
 
-import json
 import shutil
 import tempfile
 import threading
@@ -10,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from helpers import make_mock_chunk as _make_mock_chunk
+from helpers import make_mock_result as _make_mock_result
 from indexer import KreuzbergIndexer
 
 
@@ -85,24 +86,6 @@ class TestStartWatcher:
             stop_event.set()
             thread.join(timeout=2)
             assert not thread.is_alive(), "Thread should have exited after stop_event was set"
-
-
-# --- Helpers for integration test ---
-
-def _make_mock_chunk(content, metadata=None):
-    """Create a mock chunk with content and metadata."""
-    chunk = MagicMock()
-    chunk.content = content
-    chunk.metadata = metadata or {}
-    return chunk
-
-
-def _make_mock_result(chunks=None, elements=None):
-    """Create a mock ExtractionResult with chunks and elements."""
-    result = MagicMock()
-    result.chunks = chunks or []
-    result.elements = elements or []
-    return result
 
 
 # --- Integration test: full incremental reindexing flow ---

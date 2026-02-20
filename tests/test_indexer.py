@@ -41,31 +41,9 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-
-def _make_data_dir(files=None):
-    """Create a temp directory with specified files."""
-    tmp = tempfile.mkdtemp()
-    for name in (files or []):
-        p = Path(tmp) / name
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"fake-content")
-    return Path(tmp)
-
-
-def _make_mock_chunk(content, metadata=None):
-    """Create a mock chunk with content and metadata."""
-    chunk = MagicMock()
-    chunk.content = content
-    chunk.metadata = metadata or {}
-    return chunk
-
-
-def _make_mock_result(chunks=None, elements=None):
-    """Create a mock ExtractionResult with chunks and elements."""
-    result = MagicMock()
-    result.chunks = chunks or []
-    result.elements = elements or []
-    return result
+from helpers import make_data_dir as _make_data_dir
+from helpers import make_mock_chunk as _make_mock_chunk
+from helpers import make_mock_result as _make_mock_result
 
 
 # --- Acceptance test: full pipeline ---

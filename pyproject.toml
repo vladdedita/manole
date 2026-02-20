@@ -24,3 +24,6 @@ override-dependencies = [
 [project.optional-dependencies]
 kreuzberg = ["kreuzberg>=4.0"]
 dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
