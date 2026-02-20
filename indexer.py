@@ -233,6 +233,11 @@ class KreuzbergIndexer:
             }
 
         if total_chunks > 0:
+            # Clear auto-assigned IDs so update_index() can reassign from
+            # base_id = index.ntotal without colliding with existing passages.
+            for chunk in builder.chunks:
+                chunk.pop("id", None)
+                chunk.get("metadata", {}).pop("id", None)
             builder.update_index(index_path)
 
         return total_chunks
@@ -299,7 +304,8 @@ class KreuzbergIndexer:
         return index_path
 
     def start_watcher(
-        self, data_dir: Path, index_name: str, stop_event: threading.Event
+        self, data_dir: Path, index_name: str, stop_event: threading.Event,
+        on_indexed: callable = None,
     ) -> threading.Thread:
         """Start a daemon thread that watches data_dir for file changes.
 
@@ -307,21 +313,34 @@ class KreuzbergIndexer:
         supported file types. Image files are skipped. Setting stop_event
         causes the watcher thread to exit cleanly.
 
+        Args:
+            on_indexed: Optional callback invoked after a file is successfully
+                indexed. Receives the file_path as argument.
+
         Returns the daemon thread (already started).
         """
         data_dir = Path(data_dir)
 
         def _watch_loop():
-            for changes in watch(data_dir, stop_event=stop_event, debounce=self.WATCHER_DEBOUNCE_MS):
-                for _change_type, path_str in changes:
-                    file_path = Path(path_str)
-                    if not self._is_supported_file(file_path):
-                        continue
-                    print(f"  Watcher: {file_path.name} changed, reindexing...")
-                    try:
-                        self.extract_and_append_file(file_path, data_dir, index_name)
-                    except Exception as exc:
-                        print(f"  Watcher: failed to index {file_path.name}: {exc}")
+            print(f"  Watcher: starting watch on {data_dir}")
+            try:
+                for changes in watch(data_dir, stop_event=stop_event, debounce=self.WATCHER_DEBOUNCE_MS):
+                    for _change_type, path_str in changes:
+                        file_path = Path(path_str)
+                        print(f"  Watcher: detected change: {file_path.name}")
+                        if not self._is_supported_file(file_path):
+                            print(f"  Watcher: skipping unsupported file: {file_path.name}")
+                            continue
+                        print(f"  Watcher: {file_path.name} changed, reindexing...")
+                        try:
+                            self.extract_and_append_file(file_path, data_dir, index_name)
+                            if on_indexed:
+                                on_indexed(file_path)
+                        except Exception as exc:
+                            print(f"  Watcher: failed to index {file_path.name}: {exc}")
+            except Exception as exc:
+                print(f"  Watcher: crashed: {exc}")
+            print(f"  Watcher: exited for {data_dir}")
 
         thread = threading.Thread(target=_watch_loop, daemon=True, name="file-watcher")
         thread.start()

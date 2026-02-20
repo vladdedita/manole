@@ -272,7 +272,7 @@ class Server:
         self._log(f"Indexing {data_dir_path}...")
 
         # Build or reuse index
-        pipeline = params.get("pipeline", "leann")
+        pipeline = params.get("pipeline", "kreuzberg")
         reuse = params.get("reuse")
         if reuse:
             index_name = reuse
@@ -327,7 +327,20 @@ class Server:
             from indexer import KreuzbergIndexer
             _stop_event = threading.Event()
             _indexer = KreuzbergIndexer()
-            _watcher_thread = _indexer.start_watcher(data_dir_path, index_name, _stop_event)
+            _dir_id = dir_id
+            _index_path = index_path
+
+            def _on_indexed(file_path):
+                """Reload LeannSearcher so queries see newly indexed files."""
+                entry = self.directories.get(_dir_id)
+                if entry and "searcher" in entry:
+                    from leann import LeannSearcher as _LS
+                    entry["searcher"].leann = _LS(_index_path, enable_warmup=True)
+                    self._log(f"Reloaded searcher after indexing {file_path.name}")
+
+            _watcher_thread = _indexer.start_watcher(
+                data_dir_path, index_name, _stop_event, on_indexed=_on_indexed,
+            )
             self.directories[dir_id]["watcher_stop"] = _stop_event
             self.directories[dir_id]["watcher_thread"] = _watcher_thread
             self._log(f"File watcher started for {data_dir_path}")

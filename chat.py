@@ -21,7 +21,7 @@ def get_index_name(data_dir: Path) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "_", data_dir.name)
 
 
-def build_index(data_dir: Path, force: bool = False, pipeline: str = "leann") -> str:
+def build_index(data_dir: Path, force: bool = False, pipeline: str = "kreuzberg") -> str:
     index_name = get_index_name(data_dir)
 
     if pipeline == "kreuzberg":
@@ -176,7 +176,7 @@ def main():
         chat_loop(index_name, str(Path(data_dir).resolve()))
         return
 
-    pipeline = "leann"
+    pipeline = "kreuzberg"
     if "--pipeline" in args:
         idx = args.index("--pipeline")
         if idx + 1 >= len(args):

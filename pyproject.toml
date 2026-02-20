@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "docling>=2.70",
     "huggingface-hub>=0.20",
+    "kreuzberg>=4.0",
     "leann>=0.3.6",
     "llama-cpp-python>=0.3.0",
     "pillow-heif>=0.18",
@@ -22,7 +23,6 @@ override-dependencies = [
 ]
 
 [project.optional-dependencies]
-kreuzberg = ["kreuzberg>=4.0"]
 dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
