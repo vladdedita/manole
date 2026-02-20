@@ -21,4 +21,5 @@ override-dependencies = [
 ]
 
 [project.optional-dependencies]
+kreuzberg = ["kreuzberg>=4.0"]
 dev = ["pytest>=8.0"]

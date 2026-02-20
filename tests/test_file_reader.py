@@ -154,3 +154,63 @@ def test_kreuzberg_extractor_propagates_extraction_errors():
         extractor = KreuzbergExtractor()
         with pytest.raises(RuntimeError, match="extraction failed"):
             extractor.extract(Path("/tmp/test.pdf"))
+
+
+# --- Backend selection acceptance tests (step 02-02) ---
+
+
+def test_backend_selection_creates_correct_extractor_and_reads_file():
+    """Acceptance: FileReader.from_backend() creates a working reader for each valid backend."""
+    from file_reader import FileReader, DoclingExtractor, KreuzbergExtractor
+
+    # docling backend
+    reader_docling = FileReader.from_backend("docling")
+    assert isinstance(reader_docling._extractor, DoclingExtractor)
+
+    # kreuzberg backend (with kreuzberg mocked as available)
+    with patch.dict("sys.modules", {"kreuzberg": MagicMock()}):
+        reader_kreuzberg = FileReader.from_backend("kreuzberg")
+        assert isinstance(reader_kreuzberg._extractor, KreuzbergExtractor)
+
+    # invalid backend raises ValueError
+    with pytest.raises(ValueError, match="Unknown backend"):
+        FileReader.from_backend("unknown")
+
+    # missing kreuzberg raises ImportError
+    with patch.dict("sys.modules", {"kreuzberg": None}):
+        with pytest.raises(ImportError, match="kreuzberg"):
+            FileReader.from_backend("kreuzberg")
+
+
+# --- Backend selection unit tests (step 02-02) ---
+# Test Budget: 4 behaviors x 2 = 8 unit tests max. Using 3.
+
+
+@pytest.mark.parametrize("backend_name,expected_type", [
+    ("docling", "DoclingExtractor"),
+    ("kreuzberg", "KreuzbergExtractor"),
+])
+def test_from_backend_creates_expected_extractor_type(backend_name, expected_type):
+    """from_backend() instantiates the correct extractor for each valid name."""
+    from file_reader import FileReader
+
+    with patch.dict("sys.modules", {"kreuzberg": MagicMock()}):
+        reader = FileReader.from_backend(backend_name)
+    assert type(reader._extractor).__name__ == expected_type
+
+
+def test_from_backend_raises_value_error_for_unknown_backend():
+    """from_backend() raises ValueError with descriptive message for invalid backend name."""
+    from file_reader import FileReader
+
+    with pytest.raises(ValueError, match="Unknown backend.*invalid_backend"):
+        FileReader.from_backend("invalid_backend")
+
+
+def test_from_backend_raises_import_error_when_kreuzberg_missing():
+    """from_backend('kreuzberg') raises ImportError when kreuzberg package is not installed."""
+    from file_reader import FileReader
+
+    with patch.dict("sys.modules", {"kreuzberg": None}):
+        with pytest.raises(ImportError, match="kreuzberg"):
+            FileReader.from_backend("kreuzberg")

@@ -60,9 +60,26 @@ class FileReader:
     # Extensions handled as plain text — no extractor needed.
     _PLAIN_TEXT_SUFFIXES = {".txt", ".log", ".cfg", ".ini", ".toml", ".yaml", ".yml", ".json", ".py", ".sh"}
 
+    _BACKENDS: dict[str, type] = {}  # populated after class body
+
     def __init__(self, max_chars: int = 4000, extractor: TextExtractor | None = None):
         self.max_chars = max_chars
         self._extractor = extractor if extractor is not None else DoclingExtractor()
+
+    @classmethod
+    def from_backend(cls, backend: str, *, max_chars: int = 4000) -> "FileReader":
+        """Create a FileReader with the named backend extractor.
+
+        Valid backends: "docling", "kreuzberg".
+        Raises ValueError for unknown backends.
+        Raises ImportError if kreuzberg is not installed.
+        """
+        extractor_cls = cls._BACKENDS.get(backend)
+        if extractor_cls is None:
+            raise ValueError(
+                f"Unknown backend '{backend}'. Choose from: {', '.join(sorted(cls._BACKENDS))}"
+            )
+        return cls(max_chars=max_chars, extractor=extractor_cls())
 
     @property
     def _converter(self):
@@ -87,3 +104,10 @@ class FileReader:
             return text[:self.max_chars]
         except Exception as e:
             return f"Failed to read {file_path.name}: {e}"
+
+
+# Register available backends
+FileReader._BACKENDS = {
+    "docling": DoclingExtractor,
+    "kreuzberg": KreuzbergExtractor,
+}
