@@ -213,6 +213,11 @@ class Server:
         return {"id": req_id, "type": "result", "data": {"debug": self.debug}}
 
     def handle_shutdown(self, req_id) -> dict:
+        # Stop all active file watchers
+        for entry in self.directories.values():
+            stop_event = entry.get("watcher_stop")
+            if stop_event:
+                stop_event.set()
         self.running = False
         return {"id": req_id, "type": "result", "data": {"status": "shutting_down"}}
 
@@ -303,6 +308,16 @@ class Server:
             "summary": "",
             "conversation_history": [],
         }
+
+        # Start file watcher for incremental indexing (kreuzberg only)
+        if pipeline == "kreuzberg":
+            from indexer import KreuzbergIndexer
+            _stop_event = threading.Event()
+            _indexer = KreuzbergIndexer()
+            _watcher_thread = _indexer.start_watcher(data_dir_path, index_name, _stop_event)
+            self.directories[dir_id]["watcher_stop"] = _stop_event
+            self.directories[dir_id]["watcher_thread"] = _watcher_thread
+            self._log(f"File watcher started for {data_dir_path}")
 
         # --- Inline summary generation (cached to disk) ---
         summary = ""
@@ -489,6 +504,13 @@ class Server:
         if not dir_id or dir_id not in self.directories:
             return {"id": req_id, "type": "error", "data": {"message": f"Unknown directory: {dir_id}"}}
         entry = self.directories.pop(dir_id)
+        # Stop file watcher if active
+        stop_event = entry.get("watcher_stop")
+        if stop_event:
+            stop_event.set()
+            thread = entry.get("watcher_thread")
+            if thread:
+                thread.join(timeout=3)
         self._delete_index_files(entry)
         # If no directories left, reset state
         if not self.directories:
@@ -501,6 +523,13 @@ class Server:
         if not dir_id or dir_id not in self.directories:
             return {"id": req_id, "type": "error", "data": {"message": f"Unknown directory: {dir_id}"}}
         entry = self.directories[dir_id]
+        # Stop file watcher if active
+        stop_event = entry.get("watcher_stop")
+        if stop_event:
+            stop_event.set()
+            thread = entry.get("watcher_thread")
+            if thread:
+                thread.join(timeout=3)
         # Delete old index files from disk
         self._delete_index_files(entry)
         # Clear cached file graph so it's recomputed after reindex

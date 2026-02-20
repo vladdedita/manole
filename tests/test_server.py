@@ -1381,3 +1381,213 @@ class TestForegroundCaptioning:
 
         finally:
             srv_mod.send = original_send
+
+
+class TestFileWatcherLifecycle:
+    """Acceptance: file watcher starts on init (kreuzberg) and stops on remove/shutdown.
+
+    Test Budget: 3 behaviors x 2 = 6 max.
+    Behaviors:
+      1. handle_init starts watcher for kreuzberg pipeline
+      2. handle_remove_directory stops watcher before deleting index
+      3. handle_shutdown stops all active watchers
+    """
+
+    def _init_server_with_watcher(self, tmp_path):
+        """Helper: init a server with kreuzberg pipeline, return components."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        srv = Server()
+        mock_model = MagicMock()
+        mock_model.generate.return_value = "Summary"
+        srv.model = mock_model
+
+        (tmp_path / "doc.txt").write_text("hello")
+
+        mock_searcher_inst = MagicMock()
+        mock_searcher_inst.search_and_extract.return_value = "facts"
+
+        mock_captioner = MagicMock()
+        mock_captioner_cls = MagicMock(return_value=mock_captioner)
+        mock_cache_cls = MagicMock(return_value=MagicMock())
+
+        mock_watcher_thread = MagicMock()
+        mock_indexer = MagicMock()
+        mock_indexer.start_watcher.return_value = mock_watcher_thread
+
+        return srv, srv_mod, original_send, mock_searcher_inst, \
+            mock_captioner_cls, mock_cache_cls, mock_indexer, mock_watcher_thread
+
+    def test_handle_init_starts_watcher_for_kreuzberg_pipeline(self, tmp_path):
+        """Given pipeline='kreuzberg', handle_init starts a file watcher and stores
+        watcher_stop and watcher_thread in the directory entry."""
+        srv, srv_mod, original_send, mock_searcher_inst, \
+            mock_captioner_cls, mock_cache_cls, mock_indexer, mock_watcher_thread = \
+            self._init_server_with_watcher(tmp_path)
+
+        try:
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls), \
+                 patch("indexer.KreuzbergIndexer", return_value=mock_indexer):
+                result = srv.handle_init(1, {
+                    "dataDir": str(tmp_path),
+                    "pipeline": "kreuzberg",
+                })
+
+            assert result["data"]["status"] == "ready"
+
+            # Watcher should have been started
+            mock_indexer.start_watcher.assert_called_once()
+            call_args = mock_indexer.start_watcher.call_args
+            assert str(call_args[0][0]) == str(tmp_path)  # data_dir
+            assert call_args[0][1] == "test_index"  # index_name
+
+            # stop_event and thread stored in directory entry
+            from server import make_dir_id
+            dir_id = make_dir_id(str(tmp_path.resolve()))
+            entry = srv.directories[dir_id]
+            assert "watcher_stop" in entry
+            assert "watcher_thread" in entry
+            assert entry["watcher_thread"] is mock_watcher_thread
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_handle_init_does_not_start_watcher_for_leann_pipeline(self, tmp_path):
+        """Given pipeline='leann' (default), handle_init does NOT start a watcher."""
+        srv, srv_mod, original_send, mock_searcher_inst, \
+            mock_captioner_cls, mock_cache_cls, mock_indexer, mock_watcher_thread = \
+            self._init_server_with_watcher(tmp_path)
+
+        try:
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls), \
+                 patch("indexer.KreuzbergIndexer", return_value=mock_indexer):
+                result = srv.handle_init(1, {
+                    "dataDir": str(tmp_path),
+                })
+
+            assert result["data"]["status"] == "ready"
+            mock_indexer.start_watcher.assert_not_called()
+
+            from server import make_dir_id
+            dir_id = make_dir_id(str(tmp_path.resolve()))
+            entry = srv.directories[dir_id]
+            assert "watcher_stop" not in entry
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_handle_remove_directory_stops_watcher(self, tmp_path):
+        """Given a directory with an active watcher, handle_remove_directory stops it
+        by setting stop_event and joining the thread."""
+        from server import Server
+        import server as srv_mod
+
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: None
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+
+            import threading
+            stop_event = threading.Event()
+            mock_thread = MagicMock()
+
+            srv.directories["test"] = {
+                "dir_id": "test",
+                "state": "ready",
+                "path": str(tmp_path),
+                "conversation_history": [],
+                "watcher_stop": stop_event,
+                "watcher_thread": mock_thread,
+            }
+
+            result = srv.handle_remove_directory(1, {"directoryId": "test"})
+            assert result["type"] == "result"
+            assert result["data"]["status"] == "ok"
+            assert stop_event.is_set(), "stop_event must be set to stop the watcher"
+            mock_thread.join.assert_called_once_with(timeout=3)
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_handle_shutdown_stops_all_watchers(self):
+        """Given multiple directories with watchers, handle_shutdown sets all stop_events."""
+        from server import Server
+        import threading
+
+        srv = Server()
+        stop1 = threading.Event()
+        stop2 = threading.Event()
+
+        srv.directories["d1"] = {
+            "dir_id": "d1", "state": "ready",
+            "watcher_stop": stop1, "watcher_thread": MagicMock(),
+        }
+        srv.directories["d2"] = {
+            "dir_id": "d2", "state": "ready",
+            "watcher_stop": stop2, "watcher_thread": MagicMock(),
+        }
+
+        srv.handle_shutdown(1)
+        assert stop1.is_set(), "Watcher 1 stop_event must be set"
+        assert stop2.is_set(), "Watcher 2 stop_event must be set"
+
+    def test_handle_reindex_stops_watcher_before_reindexing(self, tmp_path):
+        """Given a directory with an active watcher, handle_reindex stops the watcher
+        before deleting index files."""
+        from server import Server
+        import server as srv_mod
+        import threading
+
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: None
+
+        try:
+            srv = Server()
+            srv.state = "ready"
+            mock_model = MagicMock()
+            mock_model.generate.return_value = "Summary"
+            srv.model = mock_model
+
+            stop_event = threading.Event()
+            mock_thread = MagicMock()
+
+            (tmp_path / "doc.txt").write_text("hello")
+
+            srv.directories["test"] = {
+                "dir_id": "test",
+                "state": "ready",
+                "path": str(tmp_path),
+                "index_name": "old_index",
+                "conversation_history": [],
+                "watcher_stop": stop_event,
+                "watcher_thread": mock_thread,
+            }
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.return_value = "facts"
+            mock_captioner = MagicMock()
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
+            mock_indexer = MagicMock()
+            mock_indexer.start_watcher.return_value = MagicMock()
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls), \
+                 patch("indexer.KreuzbergIndexer", return_value=mock_indexer):
+                result = srv.handle_reindex(1, {"directoryId": "test"})
+
+            assert result["data"]["status"] == "ready"
+            assert stop_event.is_set(), "Old watcher stop_event must be set"
+            mock_thread.join.assert_called_once_with(timeout=3)
+
+        finally:
+            srv_mod.send = original_send
