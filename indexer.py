@@ -1,5 +1,6 @@
 """Ingestion pipeline: kreuzberg extract -> chunk -> LeannBuilder index."""
 import json
+import threading
 from pathlib import Path
 
 from kreuzberg import (
@@ -11,6 +12,7 @@ from kreuzberg import (
     extract_file_sync,
 )
 from leann import LeannBuilder
+from watchfiles import watch
 
 
 
@@ -286,3 +288,38 @@ class KreuzbergIndexer:
             self._write_manifest(index_name, file_records)
 
         return index_path
+
+    def start_watcher(
+        self, data_dir: Path, index_name: str, stop_event: threading.Event
+    ) -> threading.Thread:
+        """Start a daemon thread that watches data_dir for file changes.
+
+        On file creation/modification, calls extract_and_append_file() for
+        supported file types. Image files are skipped. Setting stop_event
+        causes the watcher thread to exit cleanly.
+
+        Returns the daemon thread (already started).
+        """
+        data_dir = Path(data_dir)
+
+        def _watch_loop():
+            for changes in watch(data_dir, stop_event=stop_event, debounce=500):
+                for _change_type, path_str in changes:
+                    file_path = Path(path_str)
+                    if not file_path.is_file():
+                        continue
+                    try:
+                        mime = detect_mime_type_from_path(str(file_path))
+                    except Exception:
+                        continue
+                    if any(mime.startswith(p) for p in self.SKIP_MIME_PREFIXES):
+                        continue
+                    print(f"  Watcher: {file_path.name} changed, reindexing...")
+                    try:
+                        self.extract_and_append_file(file_path, data_dir, index_name)
+                    except Exception as exc:
+                        print(f"  Watcher: failed to index {file_path.name}: {exc}")
+
+        thread = threading.Thread(target=_watch_loop, daemon=True, name="file-watcher")
+        thread.start()
+        return thread

@@ -12,6 +12,7 @@ dependencies = [
     "pillow-heif>=0.18",
     "torchvision>=0.25.0",
     "transformers>=4.55",
+    "watchfiles>=1.1.1",
 ]
 
 [tool.uv]
