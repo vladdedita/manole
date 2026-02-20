@@ -70,9 +70,15 @@ class KreuzbergIndexer:
                 page_number = None
                 element_type = None
                 if i < len(elements):
-                    elem_meta = elements[i].metadata or {}
+                    elem = elements[i]
+                    # kreuzberg returns elements as dicts (not objects)
+                    if isinstance(elem, dict):
+                        elem_meta = elem.get("metadata") or {}
+                        element_type = elem.get("element_type") or elem_meta.get("element_type")
+                    else:
+                        elem_meta = elem.metadata or {}
+                        element_type = elem_meta.get("element_type")
                     page_number = elem_meta.get("page_number")
-                    element_type = elem_meta.get("element_type")
 
                 builder.add_text(
                     text=chunk.content,
