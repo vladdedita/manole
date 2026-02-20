@@ -3,12 +3,14 @@
 Step 01-01: kreuzberg-integration
 Test Budget: 4 behaviors x 2 = 8 max unit tests
 
-Behaviors:
-1. Walk directory + produce HNSW index via LeannBuilder
-2. Chunks carry correct metadata (source, page_number, element_type, chunk_index)
-3. Unsupported/corrupt files skipped with logged warning
-4. Uses element-based extraction with 512-char chunks, 50-char overlap
+Step 01-01: incremental-reindexing / manifest
+Test Budget: 2 behaviors x 2 = 4 max unit tests (using 2)
+
+Behaviors (manifest):
+1. build() writes manifest.json with version, files dict (mtime + chunks)
+2. _read_manifest() returns None when manifest file is missing
 """
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -259,3 +261,67 @@ def test_only_supported_extensions_are_extracted(mock_extract, MockBuilder, file
         assert mock_extract.call_count == 1, f"{filename} should be extracted"
     else:
         assert mock_extract.call_count == 0, f"{filename} should NOT be extracted"
+
+
+# --- Acceptance test: manifest written after build ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_build_writes_manifest_with_file_mtimes_and_chunk_counts(mock_extract, MockBuilder):
+    """Given a directory with supported files,
+    when build() completes successfully,
+    then it writes manifest.json with version=1 and per-file mtime + chunk count."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["report.pdf", "slides.pptx"])
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[
+            _make_mock_chunk("Chunk one", {"chunk_index": 0}),
+            _make_mock_chunk("Chunk two", {"chunk_index": 1}),
+        ],
+        elements=[
+            MagicMock(metadata={"page_number": 1, "element_type": "paragraph"}),
+            MagicMock(metadata={"page_number": 2, "element_type": "heading"}),
+        ],
+    )
+
+    indexer = KreuzbergIndexer()
+    indexer.build(data_dir, "manifest-test")
+
+    # Manifest should exist in the index directory
+    manifest_path = Path(".leann") / "indexes" / "manifest-test" / "manifest.json"
+    assert manifest_path.exists(), "manifest.json should be written after build"
+
+    manifest = json.loads(manifest_path.read_text())
+
+    # Version field
+    assert manifest["version"] == 1
+
+    # Files dict keyed by relative path
+    assert "files" in manifest
+    files = manifest["files"]
+    assert "report.pdf" in files
+    assert "slides.pptx" in files
+
+    # Each entry has mtime (float) and chunks (int)
+    for rel_path in ["report.pdf", "slides.pptx"]:
+        entry = files[rel_path]
+        assert isinstance(entry["mtime"], float)
+        assert isinstance(entry["chunks"], int)
+        assert entry["chunks"] == 2  # Each file produced 2 chunks
+        # mtime should be a real file mtime (positive number)
+        assert entry["mtime"] > 0
+
+
+# --- Unit test: _read_manifest returns None when missing ---
+
+def test_read_manifest_returns_none_when_missing():
+    """Given no manifest.json exists,
+    when _read_manifest() is called,
+    then it returns None."""
+    from indexer import KreuzbergIndexer
+
+    indexer = KreuzbergIndexer()
+    result = indexer._read_manifest("nonexistent-index-name")
+    assert result is None

@@ -1,5 +1,5 @@
 """Ingestion pipeline: kreuzberg extract -> chunk -> LeannBuilder index."""
-import logging
+import json
 from pathlib import Path
 
 from kreuzberg import (
@@ -7,23 +7,38 @@ from kreuzberg import (
     ChunkingConfig,
     OutputFormat,
     ResultFormat,
+    detect_mime_type_from_path,
     extract_file_sync,
 )
 from leann import LeannBuilder
 
-log = logging.getLogger(__name__)
 
 
 class KreuzbergIndexer:
     """Ingestion pipeline: kreuzberg extract -> chunk -> LeannBuilder index."""
 
-    SUPPORTED_EXTENSIONS = {
-        ".pdf", ".docx", ".doc", ".pptx", ".xlsx",
-        ".html", ".htm", ".epub",
-    }
+    SKIP_MIME_PREFIXES = ("image/",)
 
     def __init__(self, embedding_model: str = "facebook/contriever"):
         self.embedding_model = embedding_model
+
+    def _manifest_path(self, index_name: str) -> Path:
+        """Return the path to the manifest.json for a given index."""
+        return Path(".leann") / "indexes" / index_name / "manifest.json"
+
+    def _write_manifest(self, index_name: str, file_records: dict) -> None:
+        """Write manifest.json with version and file records."""
+        manifest = {"version": 1, "files": file_records}
+        path = self._manifest_path(index_name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest, indent=2))
+
+    def _read_manifest(self, index_name: str) -> dict | None:
+        """Read manifest.json for an index. Returns None if missing."""
+        path = self._manifest_path(index_name)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())
 
     def build(self, data_dir: Path, index_name: str, force: bool = False) -> str:
         """Build a LEANN index from all supported files in data_dir.
@@ -31,6 +46,15 @@ class KreuzbergIndexer:
         Returns the index path.
         """
         data_dir = Path(data_dir)
+        index_path = str(
+            Path(".leann") / "indexes" / index_name / "documents.leann"
+        )
+
+        # Skip rebuild if index already exists
+        if not force and Path(f"{index_path}.meta.json").exists():
+            print(f"Index '{index_name}' already exists, skipping build (use force=True to rebuild)")
+            return index_path
+
         config = ExtractionConfig(
             output_format=OutputFormat.MARKDOWN,
             result_format=ResultFormat.ELEMENT_BASED,
@@ -45,21 +69,36 @@ class KreuzbergIndexer:
         )
 
         total_chunks = 0
+        files_processed = 0
+        files_skipped = 0
+        file_records = {}
 
         for file_path in sorted(data_dir.rglob("*")):
             if not file_path.is_file():
                 continue
-            if file_path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
+            try:
+                mime = detect_mime_type_from_path(str(file_path))
+            except Exception:
+                files_skipped += 1
+                continue
+            if any(mime.startswith(p) for p in self.SKIP_MIME_PREFIXES):
+                files_skipped += 1
                 continue
 
+            print(f"  Extracting: {file_path.name} ({mime})")
             try:
                 result = extract_file_sync(str(file_path), config=config)
             except Exception as exc:
-                log.warning("Failed to extract %s: %s", file_path.name, exc)
+                print(f"  FAILED: {file_path.name}: {exc}")
+                files_skipped += 1
                 continue
 
             if not result.chunks:
+                print(f"  No chunks: {file_path.name}")
                 continue
+
+            files_processed += 1
+            file_chunk_count = 0
 
             # Build element metadata lookup by index
             elements = result.elements or []
@@ -92,16 +131,20 @@ class KreuzbergIndexer:
                     },
                 )
                 total_chunks += 1
+                file_chunk_count += 1
+
+            rel_path = str(file_path.relative_to(data_dir))
+            file_records[rel_path] = {
+                "mtime": file_path.stat().st_mtime,
+                "chunks": file_chunk_count,
+            }
 
         if total_chunks == 0:
             raise RuntimeError(
                 "No chunks extracted from any file. Cannot build empty index."
             )
 
-        index_path = str(
-            Path(".leann") / "indexes" / index_name / "documents.leann"
-        )
+        print(f"  {files_processed} files -> {total_chunks} chunks ({files_skipped} skipped)")
         builder.build_index(index_path)
-
-        log.info("Built index %s with %d chunks", index_name, total_chunks)
+        self._write_manifest(index_name, file_records)
         return index_path
