@@ -9,6 +9,14 @@ Test Budget: 2 behaviors x 2 = 4 max unit tests (using 2)
 Behaviors (manifest):
 1. build() writes manifest.json with version, files dict (mtime + chunks)
 2. _read_manifest() returns None when manifest file is missing
+
+Step 01-02: incremental-reindexing / incremental_update
+Test Budget: 3 behaviors x 2 = 6 max unit tests
+
+Behaviors (incremental_update):
+1. New files (not in manifest) are extracted and indexed via update_index()
+2. Modified files (mtime differs) are re-extracted and indexed
+3. Unchanged files (mtime matches) are skipped
 """
 import json
 import logging
@@ -325,3 +333,107 @@ def test_read_manifest_returns_none_when_missing():
     indexer = KreuzbergIndexer()
     result = indexer._read_manifest("nonexistent-index-name")
     assert result is None
+
+
+# --- Acceptance test: incremental_update detects new files ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_incremental_update_extracts_only_new_files(mock_extract, MockBuilder):
+    """Given a manifest with 1 file and a directory with 2 files,
+    when incremental_update() is called,
+    then it extracts only the new file and uses update_index() (not build_index())."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["existing.pdf", "new_file.docx"])
+    existing_mtime = (data_dir / "existing.pdf").stat().st_mtime
+
+    indexer = KreuzbergIndexer()
+    # Pre-seed manifest with the existing file
+    indexer._write_manifest("incr-test", {
+        "existing.pdf": {"mtime": existing_mtime, "chunks": 2},
+    })
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[_make_mock_chunk("New content", {"chunk_index": 0})],
+        elements=[MagicMock(metadata={"page_number": 1, "element_type": "text"})],
+    )
+
+    index_path = str(Path(".leann") / "indexes" / "incr-test" / "documents.leann")
+    indexer.incremental_update(data_dir, "incr-test")
+
+    # Only the new file should be extracted (existing.pdf skipped)
+    assert mock_extract.call_count == 1
+    extracted_path = mock_extract.call_args[0][0]
+    assert "new_file.docx" in extracted_path
+
+    # update_index() called, NOT build_index()
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.update_index.call_count == 1
+    assert builder_instance.build_index.call_count == 0
+
+    # Manifest updated with both files
+    manifest = indexer._read_manifest("incr-test")
+    assert "existing.pdf" in manifest["files"]
+    assert "new_file.docx" in manifest["files"]
+
+
+# --- Unit tests: incremental_update behaviors ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_incremental_update_reextracts_modified_files(mock_extract, MockBuilder):
+    """Given a manifest with a file whose mtime is stale,
+    when incremental_update() is called,
+    then it re-extracts that file."""
+    from indexer import KreuzbergIndexer
+    import time
+
+    data_dir = _make_data_dir(["report.pdf"])
+    # Record an old mtime in manifest (different from actual file mtime)
+    indexer = KreuzbergIndexer()
+    actual_mtime = (data_dir / "report.pdf").stat().st_mtime
+    indexer._write_manifest("mod-test", {
+        "report.pdf": {"mtime": actual_mtime - 100.0, "chunks": 1},
+    })
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[_make_mock_chunk("Updated content", {"chunk_index": 0})],
+        elements=[MagicMock(metadata={"page_number": 1, "element_type": "text"})],
+    )
+
+    indexer.incremental_update(data_dir, "mod-test")
+
+    # Modified file should be extracted
+    assert mock_extract.call_count == 1
+
+    # Manifest mtime should be updated to current
+    manifest = indexer._read_manifest("mod-test")
+    assert manifest["files"]["report.pdf"]["mtime"] == actual_mtime
+
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_incremental_update_skips_unchanged_files(mock_extract, MockBuilder):
+    """Given all files in directory match manifest mtimes,
+    when incremental_update() is called,
+    then no files are extracted and no index update occurs."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["report.pdf", "slides.pptx"])
+
+    indexer = KreuzbergIndexer()
+    # Manifest mtimes match actual file mtimes exactly
+    indexer._write_manifest("noop-test", {
+        "report.pdf": {"mtime": (data_dir / "report.pdf").stat().st_mtime, "chunks": 2},
+        "slides.pptx": {"mtime": (data_dir / "slides.pptx").stat().st_mtime, "chunks": 3},
+    })
+
+    indexer.incremental_update(data_dir, "noop-test")
+
+    # No files extracted
+    assert mock_extract.call_count == 0
+
+    # No index update
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.update_index.call_count == 0

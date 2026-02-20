@@ -148,3 +148,123 @@ class KreuzbergIndexer:
         builder.build_index(index_path)
         self._write_manifest(index_name, file_records)
         return index_path
+
+    def _extract_and_append(
+        self, data_dir: Path, files_to_process: list[Path], index_path: str, file_records: dict
+    ) -> int:
+        """Extract files and append chunks to an existing index via update_index().
+
+        Updates file_records in-place with mtime and chunk count for each processed file.
+        Returns total number of chunks appended.
+        """
+        config = ExtractionConfig(
+            output_format=OutputFormat.MARKDOWN,
+            result_format=ResultFormat.ELEMENT_BASED,
+            include_document_structure=True,
+            chunking=ChunkingConfig(max_chars=512, max_overlap=50),
+        )
+
+        builder = LeannBuilder(
+            backend_name="hnsw",
+            embedding_model=self.embedding_model,
+            is_recompute=False,
+        )
+
+        total_chunks = 0
+
+        for file_path in files_to_process:
+            print(f"  Extracting: {file_path.name}")
+            try:
+                result = extract_file_sync(str(file_path), config=config)
+            except Exception as exc:
+                print(f"  FAILED: {file_path.name}: {exc}")
+                continue
+
+            if not result.chunks:
+                print(f"  No chunks: {file_path.name}")
+                continue
+
+            file_chunk_count = 0
+            elements = result.elements or []
+            for i, chunk in enumerate(result.chunks):
+                chunk_index = chunk.metadata.get("chunk_index", i)
+
+                page_number = None
+                element_type = None
+                if i < len(elements):
+                    elem = elements[i]
+                    if isinstance(elem, dict):
+                        elem_meta = elem.get("metadata") or {}
+                        element_type = elem.get("element_type") or elem_meta.get("element_type")
+                    else:
+                        elem_meta = elem.metadata or {}
+                        element_type = elem_meta.get("element_type")
+                    page_number = elem_meta.get("page_number")
+
+                builder.add_text(
+                    text=chunk.content,
+                    metadata={
+                        "source": str(file_path.relative_to(data_dir)),
+                        "file_name": file_path.name,
+                        "file_type": file_path.suffix.lstrip("."),
+                        "page_number": page_number,
+                        "element_type": element_type,
+                        "chunk_index": chunk_index,
+                    },
+                )
+                total_chunks += 1
+                file_chunk_count += 1
+
+            rel_path = str(file_path.relative_to(data_dir))
+            file_records[rel_path] = {
+                "mtime": file_path.stat().st_mtime,
+                "chunks": file_chunk_count,
+            }
+
+        if total_chunks > 0:
+            builder.update_index(index_path)
+
+        return total_chunks
+
+    def incremental_update(self, data_dir: Path, index_name: str) -> str:
+        """Incrementally update an existing index by processing only new/modified files.
+
+        Compares file mtimes against the manifest to detect changes.
+        Returns the index path.
+        """
+        data_dir = Path(data_dir)
+        index_path = str(
+            Path(".leann") / "indexes" / index_name / "documents.leann"
+        )
+
+        manifest = self._read_manifest(index_name)
+        existing_files = manifest["files"] if manifest else {}
+
+        # Walk directory and find files that need processing
+        files_to_process = []
+        for file_path in sorted(data_dir.rglob("*")):
+            if not file_path.is_file():
+                continue
+            try:
+                mime = detect_mime_type_from_path(str(file_path))
+            except Exception:
+                continue
+            if any(mime.startswith(p) for p in self.SKIP_MIME_PREFIXES):
+                continue
+
+            rel_path = str(file_path.relative_to(data_dir))
+            current_mtime = file_path.stat().st_mtime
+
+            if rel_path in existing_files and existing_files[rel_path]["mtime"] == current_mtime:
+                continue  # Unchanged
+
+            files_to_process.append(file_path)
+
+        # Copy existing file records to preserve unchanged entries
+        file_records = dict(existing_files)
+
+        if files_to_process:
+            self._extract_and_append(data_dir, files_to_process, index_path, file_records)
+            self._write_manifest(index_name, file_records)
+
+        return index_path
