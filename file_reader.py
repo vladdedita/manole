@@ -33,6 +33,27 @@ class DoclingExtractor:
         return self._converter
 
 
+class KreuzbergExtractor:
+    """Adapter: extracts text via kreuzberg's async extract_file."""
+
+    def __init__(self) -> None:
+        import importlib
+
+        try:
+            self._kreuzberg = importlib.import_module("kreuzberg")
+        except ImportError:
+            raise ImportError(
+                "kreuzberg is not installed. Install it with: pip install kreuzberg"
+            )
+
+    def extract(self, path: Path) -> str:
+        """Extract text from a file using kreuzberg. Raises on failure."""
+        import asyncio
+
+        result = asyncio.run(self._kreuzberg.extract_file(str(path)))
+        return result.content
+
+
 class FileReader:
     """Wraps Docling's DocumentConverter for on-demand text extraction."""
 

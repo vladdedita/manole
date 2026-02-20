@@ -1,7 +1,8 @@
 """Tests for FileReader — on-demand text extraction via Docling."""
+import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -95,3 +96,61 @@ def test_docling_extractor_raises_on_conversion_failure(mock_converter_cls):
         f.flush()
         with pytest.raises(RuntimeError, match="conversion failed"):
             extractor.extract(Path(f.name))
+
+
+# --- KreuzbergExtractor tests ---
+
+
+def test_kreuzberg_extractor_satisfies_text_extractor_protocol():
+    """KreuzbergExtractor must be a structural subtype of TextExtractor."""
+    from file_reader import KreuzbergExtractor
+
+    with patch.dict("sys.modules", {"kreuzberg": MagicMock()}):
+        extractor = KreuzbergExtractor()
+    assert isinstance(extractor, TextExtractor)
+
+
+def test_kreuzberg_extractor_extract_returns_plain_text():
+    """extract() calls kreuzberg.extract_file async and returns content string."""
+    from file_reader import KreuzbergExtractor
+
+    mock_kreuzberg = MagicMock()
+    mock_result = MagicMock()
+    mock_result.content = "Extracted plain text from PDF"
+
+    async def fake_extract_file(path):
+        return mock_result
+
+    mock_kreuzberg.extract_file = fake_extract_file
+
+    with patch.dict("sys.modules", {"kreuzberg": mock_kreuzberg}):
+        extractor = KreuzbergExtractor()
+        result = extractor.extract(Path("/tmp/test.pdf"))
+
+    assert result == "Extracted plain text from PDF"
+
+
+def test_kreuzberg_extractor_raises_import_error_when_missing():
+    """KreuzbergExtractor raises ImportError with clear message if kreuzberg not installed."""
+    from file_reader import KreuzbergExtractor
+
+    with patch.dict("sys.modules", {"kreuzberg": None}):
+        with pytest.raises(ImportError, match="kreuzberg"):
+            KreuzbergExtractor()
+
+
+def test_kreuzberg_extractor_propagates_extraction_errors():
+    """extract() propagates exceptions from kreuzberg.extract_file."""
+    from file_reader import KreuzbergExtractor
+
+    mock_kreuzberg = MagicMock()
+
+    async def fake_extract_file(path):
+        raise RuntimeError("extraction failed")
+
+    mock_kreuzberg.extract_file = fake_extract_file
+
+    with patch.dict("sys.modules", {"kreuzberg": mock_kreuzberg}):
+        extractor = KreuzbergExtractor()
+        with pytest.raises(RuntimeError, match="extraction failed"):
+            extractor.extract(Path("/tmp/test.pdf"))
