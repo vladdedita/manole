@@ -1,10 +1,8 @@
-"""FileReader — on-demand text extraction via Docling."""
+"""FileReader — on-demand text extraction with pluggable backends."""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol, runtime_checkable
-
-from docling.document_converter import DocumentConverter
 
 
 @runtime_checkable
@@ -18,7 +16,7 @@ class DoclingExtractor:
     """Adapter: extracts text via Docling's DocumentConverter."""
 
     def __init__(self) -> None:
-        self._converter: DocumentConverter | None = None
+        self._converter = None
 
     def extract(self, path: Path) -> str:
         """Convert a document to markdown text. Raises on failure."""
@@ -26,9 +24,10 @@ class DoclingExtractor:
         result = converter.convert(str(path))
         return result.document.export_to_markdown()
 
-    def _get_converter(self) -> DocumentConverter:
+    def _get_converter(self):
         """Lazy-load Docling converter on first use."""
         if self._converter is None:
+            from docling.document_converter import DocumentConverter
             self._converter = DocumentConverter()
         return self._converter
 

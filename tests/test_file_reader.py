@@ -64,7 +64,7 @@ def test_docling_extractor_lazy_loads_converter():
     assert extractor._converter is None
 
 
-@patch("file_reader.DocumentConverter")
+@patch("docling.document_converter.DocumentConverter")
 def test_docling_extractor_extract_returns_markdown(mock_converter_cls):
     """extract() converts a file and returns markdown text."""
     mock_converter = MagicMock()
@@ -83,7 +83,7 @@ def test_docling_extractor_extract_returns_markdown(mock_converter_cls):
     mock_converter.convert.assert_called_once()
 
 
-@patch("file_reader.DocumentConverter")
+@patch("docling.document_converter.DocumentConverter")
 def test_docling_extractor_raises_on_conversion_failure(mock_converter_cls):
     """extract() raises an exception when Docling conversion fails."""
     mock_converter = MagicMock()
