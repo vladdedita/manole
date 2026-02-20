@@ -147,6 +147,22 @@ Key entry points:
 - **Electron UI design** — `docs/plans/2026-02-16-electron-ui-design.md`
 - **Fast captioning investigation** — `docs/analysis/root-cause-analysis-slow-captioning.md`
 
+## Kreuzberg Integration (experimental)
+
+The [`feat/kreuzberg-integration`](https://github.com/vladdedita/manole/tree/feat/kreuzberg-integration) branch replaces the document extraction pipeline with [kreuzberg](https://github.com/kruzberg-org/kreuzberg), a Python-native extraction library. This brings several improvements over the default docling-based pipeline:
+
+- **Incremental reindexing** — new or modified files are detected and indexed automatically without rebuilding the entire index. A file watcher monitors indexed directories in real time.
+- **Faster extraction** — kreuzberg is lighter than docling and extracts text from PDFs, DOCX, PPTX, XLSX, HTML, EPUB, and more with lower overhead.
+- **Manifest-based change detection** — a JSON manifest tracks file mtimes and chunk counts per indexed directory. On startup, only changed files are reprocessed (catch-up scan).
+- **Live file watching** — uses [watchfiles](https://github.com/samuelcolvin/watchfiles) (Rust-based) to detect filesystem changes. Drop a new file into an indexed folder and it becomes searchable within seconds.
+
+To try it:
+
+```bash
+git checkout feat/kreuzberg-integration
+./run.sh
+```
+
 ## NDJSON Protocol
 
 The Electron app spawns `python server.py` and communicates via JSON lines:
