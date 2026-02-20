@@ -21,8 +21,18 @@ def get_index_name(data_dir: Path) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "_", data_dir.name)
 
 
-def build_index(data_dir: Path, force: bool = False) -> str:
+def build_index(data_dir: Path, force: bool = False, pipeline: str = "leann") -> str:
     index_name = get_index_name(data_dir)
+
+    if pipeline == "kreuzberg":
+        from indexer import KreuzbergIndexer
+
+        print(f"Indexing: {data_dir} (kreuzberg pipeline)")
+        t0 = time.time()
+        indexer = KreuzbergIndexer()
+        indexer.build(data_dir, index_name, force=force)
+        print(f"\nIndex built in {time.time() - t0:.1f}s")
+        return index_name
 
     # Use the leann binary from the venv
     leann_bin = Path(sys.executable).parent / "leann"
@@ -166,6 +176,15 @@ def main():
         chat_loop(index_name, str(Path(data_dir).resolve()))
         return
 
+    pipeline = "leann"
+    if "--pipeline" in args:
+        idx = args.index("--pipeline")
+        if idx + 1 >= len(args):
+            print("Error: --pipeline requires a value (leann|kreuzberg)")
+            sys.exit(1)
+        pipeline = args[idx + 1]
+        args = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
+
     force = "--force" in args
     args = [a for a in args if a != "--force"]
 
@@ -178,7 +197,7 @@ def main():
         print(f"Error: {data_dir} is not a directory")
         sys.exit(1)
 
-    index_name = build_index(data_dir, force=force)
+    index_name = build_index(data_dir, force=force, pipeline=pipeline)
     chat_loop(index_name, str(data_dir))
 
 
