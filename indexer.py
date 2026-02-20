@@ -27,6 +27,48 @@ class KreuzbergIndexer:
     def __init__(self, embedding_model: str = "facebook/contriever"):
         self.embedding_model = embedding_model
 
+    def _make_extraction_config(self) -> ExtractionConfig:
+        """Create the standard extraction config for all pipelines."""
+        return ExtractionConfig(
+            output_format=OutputFormat.MARKDOWN,
+            result_format=ResultFormat.ELEMENT_BASED,
+            include_document_structure=True,
+            chunking=ChunkingConfig(
+                max_chars=self.CHUNK_MAX_CHARS,
+                max_overlap=self.CHUNK_MAX_OVERLAP,
+            ),
+        )
+
+    def _make_builder(self) -> LeannBuilder:
+        """Create a LeannBuilder with standard settings."""
+        return LeannBuilder(
+            backend_name="hnsw",
+            embedding_model=self.embedding_model,
+            is_recompute=False,
+        )
+
+    @staticmethod
+    def _extract_element_metadata(elements: list, index: int) -> tuple:
+        """Extract page_number and element_type from an element at the given index.
+
+        Returns (page_number, element_type) tuple. Both may be None.
+        """
+        if index >= len(elements):
+            return None, None
+        elem = elements[index]
+        if isinstance(elem, dict):
+            elem_meta = elem.get("metadata") or {}
+            element_type = elem.get("element_type") or elem_meta.get("element_type")
+        else:
+            elem_meta = elem.metadata or {}
+            element_type = elem_meta.get("element_type")
+        page_number = elem_meta.get("page_number")
+        return page_number, element_type
+
+    def _index_path(self, index_name: str) -> str:
+        """Return the standard index file path for a given index name."""
+        return str(Path(".leann") / "indexes" / index_name / "documents.leann")
+
     def _manifest_path(self, index_name: str) -> Path:
         """Return the path to the manifest.json for a given index."""
         return Path(".leann") / "indexes" / index_name / "manifest.json"
@@ -51,9 +93,7 @@ class KreuzbergIndexer:
         Returns the index path.
         """
         data_dir = Path(data_dir)
-        index_path = str(
-            Path(".leann") / "indexes" / index_name / "documents.leann"
-        )
+        index_path = self._index_path(index_name)
 
         # Skip rebuild if index already exists
         if not force and Path(f"{index_path}.meta.json").exists():
@@ -64,21 +104,8 @@ class KreuzbergIndexer:
             print(f"Index '{index_name}' already exists, skipping build (use force=True to rebuild)")
             return index_path
 
-        config = ExtractionConfig(
-            output_format=OutputFormat.MARKDOWN,
-            result_format=ResultFormat.ELEMENT_BASED,
-            include_document_structure=True,
-            chunking=ChunkingConfig(
-                max_chars=self.CHUNK_MAX_CHARS,
-                max_overlap=self.CHUNK_MAX_OVERLAP,
-            ),
-        )
-
-        builder = LeannBuilder(
-            backend_name="hnsw",
-            embedding_model=self.embedding_model,
-            is_recompute=False,
-        )
+        config = self._make_extraction_config()
+        builder = self._make_builder()
 
         total_chunks = 0
         files_processed = 0
@@ -111,25 +138,10 @@ class KreuzbergIndexer:
 
             files_processed += 1
             file_chunk_count = 0
-
-            # Build element metadata lookup by index
             elements = result.elements or []
             for i, chunk in enumerate(result.chunks):
                 chunk_index = chunk.metadata.get("chunk_index", i)
-
-                # Get element metadata if available
-                page_number = None
-                element_type = None
-                if i < len(elements):
-                    elem = elements[i]
-                    # kreuzberg returns elements as dicts (not objects)
-                    if isinstance(elem, dict):
-                        elem_meta = elem.get("metadata") or {}
-                        element_type = elem.get("element_type") or elem_meta.get("element_type")
-                    else:
-                        elem_meta = elem.metadata or {}
-                        element_type = elem_meta.get("element_type")
-                    page_number = elem_meta.get("page_number")
+                page_number, element_type = self._extract_element_metadata(elements, i)
 
                 builder.add_text(
                     text=chunk.content,
@@ -169,21 +181,8 @@ class KreuzbergIndexer:
         Updates file_records in-place with mtime and chunk count for each processed file.
         Returns total number of chunks appended.
         """
-        config = ExtractionConfig(
-            output_format=OutputFormat.MARKDOWN,
-            result_format=ResultFormat.ELEMENT_BASED,
-            include_document_structure=True,
-            chunking=ChunkingConfig(
-                max_chars=self.CHUNK_MAX_CHARS,
-                max_overlap=self.CHUNK_MAX_OVERLAP,
-            ),
-        )
-
-        builder = LeannBuilder(
-            backend_name="hnsw",
-            embedding_model=self.embedding_model,
-            is_recompute=False,
-        )
+        config = self._make_extraction_config()
+        builder = self._make_builder()
 
         total_chunks = 0
 
@@ -203,18 +202,7 @@ class KreuzbergIndexer:
             elements = result.elements or []
             for i, chunk in enumerate(result.chunks):
                 chunk_index = chunk.metadata.get("chunk_index", i)
-
-                page_number = None
-                element_type = None
-                if i < len(elements):
-                    elem = elements[i]
-                    if isinstance(elem, dict):
-                        elem_meta = elem.get("metadata") or {}
-                        element_type = elem.get("element_type") or elem_meta.get("element_type")
-                    else:
-                        elem_meta = elem.metadata or {}
-                        element_type = elem_meta.get("element_type")
-                    page_number = elem_meta.get("page_number")
+                page_number, element_type = self._extract_element_metadata(elements, i)
 
                 builder.add_text(
                     text=chunk.content,
@@ -251,7 +239,7 @@ class KreuzbergIndexer:
         """
         manifest = self._read_manifest(index_name) or {"version": 1, "files": {}}
         file_records = manifest.get("files", {})
-        index_path = str(Path(".leann") / "indexes" / index_name / "documents.leann")
+        index_path = self._index_path(index_name)
         self._extract_and_append(Path(data_dir), [Path(file_path)], index_path, file_records)
         self._write_manifest(index_name, file_records)
 
@@ -262,9 +250,7 @@ class KreuzbergIndexer:
         Returns the index path.
         """
         data_dir = Path(data_dir)
-        index_path = str(
-            Path(".leann") / "indexes" / index_name / "documents.leann"
-        )
+        index_path = self._index_path(index_name)
 
         manifest = self._read_manifest(index_name)
         existing_files = manifest["files"] if manifest else {}
