@@ -142,6 +142,7 @@ docs/
 Key entry points:
 
 - **How the LLM pipeline works** — [`docs/architecture.md`](docs/architecture.md) — agent loop, tools, search, models, image captioning
+- **Lessons learned** — [`docs/lessons-learned.md`](docs/lessons-learned.md) — architecture decisions, technology pivots, and what we learned building with small local models
 - **How the agent works** — `docs/plans/2026-02-15-agent-loop-design.md`
 - **Electron UI design** — `docs/plans/2026-02-16-electron-ui-design.md`
 - **Fast captioning investigation** — `docs/analysis/root-cause-analysis-slow-captioning.md`
