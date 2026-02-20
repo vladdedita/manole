@@ -230,6 +230,20 @@ class KreuzbergIndexer:
 
         return total_chunks
 
+    def extract_and_append_file(self, file_path: Path, data_dir: Path, index_name: str) -> None:
+        """Extract a single file and append its chunks to an existing index.
+
+        Reads the current manifest (or creates a new one), delegates to
+        _extract_and_append() for extraction and update_index(), then
+        writes the updated manifest. This is the entry point the file
+        watcher will call.
+        """
+        manifest = self._read_manifest(index_name) or {"version": 1, "files": {}}
+        file_records = manifest.get("files", {})
+        index_path = str(Path(".leann") / "indexes" / index_name / "documents.leann")
+        self._extract_and_append(Path(data_dir), [Path(file_path)], index_path, file_records)
+        self._write_manifest(index_name, file_records)
+
     def incremental_update(self, data_dir: Path, index_name: str) -> str:
         """Incrementally update an existing index by processing only new/modified files.
 

@@ -25,6 +25,13 @@ Behaviors:
 1. build() with existing index + manifest calls incremental_update (uses update_index, not build_index)
 2. build() with existing index but no manifest skips (no extraction)
 3. build() with force=True always does full rebuild regardless of manifest
+
+Step 02-01: incremental-reindexing / extract_and_append_file
+Test Budget: 2 behaviors x 2 = 4 max unit tests
+
+Behaviors:
+1. extract_and_append_file() extracts file, appends via update_index(), updates manifest
+2. extract_and_append_file() works when no manifest exists (creates manifest from scratch)
 """
 import json
 import logging
@@ -563,3 +570,101 @@ def test_build_with_force_rebuilds_even_when_manifest_exists(mock_extract, MockB
 
     # File should be extracted (full rebuild processes all files)
     assert mock_extract.call_count == 1
+
+
+# --- Acceptance test: extract_and_append_file ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_extract_and_append_file_extracts_appends_and_updates_manifest(mock_extract, MockBuilder):
+    """Given an existing manifest with one file,
+    when extract_and_append_file() is called with a new file,
+    then it extracts the file, appends chunks via update_index(), and updates the manifest."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["existing.pdf", "new_doc.docx"])
+    existing_mtime = (data_dir / "existing.pdf").stat().st_mtime
+
+    indexer = KreuzbergIndexer()
+    index_name = "append-test"
+
+    # Pre-seed manifest with existing file
+    indexer._write_manifest(index_name, {
+        "existing.pdf": {"mtime": existing_mtime, "chunks": 2},
+    })
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[
+            _make_mock_chunk("New doc chunk 1", {"chunk_index": 0}),
+            _make_mock_chunk("New doc chunk 2", {"chunk_index": 1}),
+        ],
+        elements=[
+            MagicMock(metadata={"page_number": 1, "element_type": "paragraph"}),
+            MagicMock(metadata={"page_number": 2, "element_type": "heading"}),
+        ],
+    )
+
+    indexer.extract_and_append_file(
+        file_path=data_dir / "new_doc.docx",
+        data_dir=data_dir,
+        index_name=index_name,
+    )
+
+    # File was extracted
+    assert mock_extract.call_count == 1
+
+    # Chunks appended via update_index (not build_index)
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.add_text.call_count == 2
+    assert builder_instance.update_index.call_count == 1
+    assert builder_instance.build_index.call_count == 0
+
+    # Manifest updated: both existing and new file present
+    manifest = indexer._read_manifest(index_name)
+    assert "existing.pdf" in manifest["files"]
+    assert "new_doc.docx" in manifest["files"]
+    assert manifest["files"]["new_doc.docx"]["chunks"] == 2
+    assert manifest["files"]["new_doc.docx"]["mtime"] > 0
+
+
+# --- Unit test: extract_and_append_file with no prior manifest ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_extract_and_append_file_creates_manifest_when_none_exists(mock_extract, MockBuilder):
+    """Given no manifest exists for the index,
+    when extract_and_append_file() is called,
+    then it creates a new manifest with version=1 and the appended file entry."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["first_file.pdf"])
+
+    indexer = KreuzbergIndexer()
+    import uuid
+    index_name = f"no-manifest-{uuid.uuid4().hex[:8]}"
+
+    # No manifest pre-seeded -- _read_manifest returns None
+    assert indexer._read_manifest(index_name) is None
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[_make_mock_chunk("First chunk", {"chunk_index": 0})],
+        elements=[MagicMock(metadata={"page_number": 1, "element_type": "text"})],
+    )
+
+    indexer.extract_and_append_file(
+        file_path=data_dir / "first_file.pdf",
+        data_dir=data_dir,
+        index_name=index_name,
+    )
+
+    # Manifest created from scratch
+    manifest = indexer._read_manifest(index_name)
+    assert manifest is not None
+    assert manifest["version"] == 1
+    assert "first_file.pdf" in manifest["files"]
+    assert manifest["files"]["first_file.pdf"]["chunks"] == 1
+    assert manifest["files"]["first_file.pdf"]["mtime"] > 0
+
+    # update_index called (not build_index)
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.update_index.call_count == 1
