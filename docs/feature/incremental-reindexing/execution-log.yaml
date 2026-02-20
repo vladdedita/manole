@@ -44,5 +44,30 @@ events:
   s: EXECUTED
   sid: 01-02
   t: '2026-02-20T17:36:27Z'
+- d: PASS
+  p: GREEN
+  s: EXECUTED
+  sid: 01-03
+  t: '2026-02-20T17:40:01Z'
+- d: PASS
+  p: COMMIT
+  s: EXECUTED
+  sid: 01-03
+  t: '2026-02-20T17:40:16Z'
+- d: PASS
+  p: PREPARE
+  s: EXECUTED
+  sid: 01-03
+  t: '2026-02-20T17:40:38Z'
+- d: PASS
+  p: RED_ACCEPTANCE
+  s: EXECUTED
+  sid: 01-03
+  t: '2026-02-20T17:40:41Z'
+- d: PASS
+  p: RED_UNIT
+  s: EXECUTED
+  sid: 01-03
+  t: '2026-02-20T17:40:45Z'
 project_id: incremental-reindexing
 schema_version: '3.0'

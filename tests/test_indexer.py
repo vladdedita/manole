@@ -17,6 +17,14 @@ Behaviors (incremental_update):
 1. New files (not in manifest) are extracted and indexed via update_index()
 2. Modified files (mtime differs) are re-extracted and indexed
 3. Unchanged files (mtime matches) are skipped
+
+Step 01-03: incremental-reindexing / build() delegates to incremental_update
+Test Budget: 3 behaviors x 2 = 6 max unit tests
+
+Behaviors:
+1. build() with existing index + manifest calls incremental_update (uses update_index, not build_index)
+2. build() with existing index but no manifest skips (no extraction)
+3. build() with force=True always does full rebuild regardless of manifest
 """
 import json
 import logging
@@ -437,3 +445,121 @@ def test_incremental_update_skips_unchanged_files(mock_extract, MockBuilder):
     # No index update
     builder_instance = MockBuilder.return_value
     assert builder_instance.update_index.call_count == 0
+
+
+# --- Acceptance test: build() delegates to incremental_update when manifest exists ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_build_with_existing_index_and_manifest_runs_incremental_update(mock_extract, MockBuilder):
+    """Given an existing index with manifest and a new file in data_dir,
+    when build() is called (without force),
+    then it delegates to incremental_update() using update_index (not build_index)."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["existing.pdf", "new_file.docx"])
+    existing_mtime = (data_dir / "existing.pdf").stat().st_mtime
+
+    indexer = KreuzbergIndexer()
+
+    # Create existing index meta file (simulates a built index)
+    index_name = "incr-build-test"
+    meta_path = Path(".leann") / "indexes" / index_name / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
+
+    # Create manifest (simulates a post-01-01 index with manifest)
+    indexer._write_manifest(index_name, {
+        "existing.pdf": {"mtime": existing_mtime, "chunks": 2},
+    })
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[_make_mock_chunk("New content", {"chunk_index": 0})],
+        elements=[MagicMock(metadata={"page_number": 1, "element_type": "text"})],
+    )
+
+    result_path = indexer.build(data_dir, index_name)
+
+    # Should use update_index (incremental), NOT build_index (full rebuild)
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.update_index.call_count == 1, "Should call update_index for incremental"
+    assert builder_instance.build_index.call_count == 0, "Should NOT call build_index"
+
+    # Only the new file should be extracted (existing.pdf skipped by manifest mtime match)
+    assert mock_extract.call_count == 1
+    extracted_path = mock_extract.call_args[0][0]
+    assert "new_file.docx" in extracted_path
+
+    # Returns valid index path
+    assert index_name in result_path
+    assert result_path.endswith("documents.leann")
+
+
+# --- Unit tests: build() skip vs incremental delegation ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_build_with_existing_index_without_manifest_skips(mock_extract, MockBuilder):
+    """Given an existing index but no manifest (pre-feature index),
+    when build() is called without force,
+    then it skips as before (no extraction, no build)."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["report.pdf"])
+
+    indexer = KreuzbergIndexer()
+
+    # Create existing index meta file but NO manifest
+    index_name = "legacy-index"
+    meta_path = Path(".leann") / "indexes" / index_name / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
+
+    result_path = indexer.build(data_dir, index_name)
+
+    # No extraction, no building -- just skip
+    assert mock_extract.call_count == 0
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.build_index.call_count == 0
+    assert builder_instance.update_index.call_count == 0
+
+    # Returns the index path
+    assert result_path.endswith("documents.leann")
+
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_build_with_force_rebuilds_even_when_manifest_exists(mock_extract, MockBuilder):
+    """Given an existing index with manifest,
+    when build() is called with force=True,
+    then it does a full rebuild using build_index (not update_index)."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["report.pdf"])
+    file_mtime = (data_dir / "report.pdf").stat().st_mtime
+
+    indexer = KreuzbergIndexer()
+
+    # Create existing index meta file AND manifest
+    index_name = "force-rebuild"
+    meta_path = Path(".leann") / "indexes" / index_name / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
+    indexer._write_manifest(index_name, {
+        "report.pdf": {"mtime": file_mtime, "chunks": 2},
+    })
+
+    mock_extract.return_value = _make_mock_result(
+        chunks=[_make_mock_chunk("Content", {"chunk_index": 0})],
+        elements=[MagicMock(metadata={"page_number": 1, "element_type": "text"})],
+    )
+
+    result_path = indexer.build(data_dir, index_name, force=True)
+
+    # Full rebuild: build_index called, NOT update_index
+    builder_instance = MockBuilder.return_value
+    assert builder_instance.build_index.call_count == 1, "force=True should trigger full build_index"
+    assert builder_instance.update_index.call_count == 0, "force=True should NOT use update_index"
+
+    # File should be extracted (full rebuild processes all files)
+    assert mock_extract.call_count == 1

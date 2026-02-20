@@ -52,6 +52,10 @@ class KreuzbergIndexer:
 
         # Skip rebuild if index already exists
         if not force and Path(f"{index_path}.meta.json").exists():
+            manifest = self._read_manifest(index_name)
+            if manifest is not None:
+                self.incremental_update(data_dir, index_name)
+                return index_path
             print(f"Index '{index_name}' already exists, skipping build (use force=True to rebuild)")
             return index_path
 
