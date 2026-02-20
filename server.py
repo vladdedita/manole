@@ -254,12 +254,13 @@ class Server:
         self._log(f"Indexing {data_dir_path}...")
 
         # Build or reuse index
+        pipeline = params.get("pipeline", "leann")
         reuse = params.get("reuse")
         if reuse:
             index_name = reuse
             self._log(f"Reusing index: {reuse}")
         else:
-            index_name = build_index(data_dir_path)
+            index_name = build_index(data_dir_path, pipeline=pipeline)
             self._log(f"Index built: {index_name}")
 
         index_path = find_index_path(index_name)

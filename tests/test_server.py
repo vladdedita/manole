@@ -1107,6 +1107,91 @@ class TestSetupFlowIntegration:
             srv_mod.send = original_send
 
 
+class TestPipelineParam:
+    """Test that init_directory forwards pipeline param to build_index."""
+
+    def test_handle_init_forwards_pipeline_param_to_build_index(self, tmp_path):
+        """Given pipeline='kreuzberg' in params, build_index receives pipeline='kreuzberg'."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        try:
+            srv = Server()
+            mock_model = MagicMock()
+            mock_model.generate.return_value = "Summary"
+            srv.model = mock_model
+
+            (tmp_path / "doc.txt").write_text("hello")
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.return_value = "facts"
+
+            mock_captioner = MagicMock()
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls) as stack:
+                mock_build = stack.enter_context(
+                    patch("chat.build_index", return_value="test_index"))
+                result = srv.handle_init(1, {
+                    "dataDir": str(tmp_path),
+                    "pipeline": "kreuzberg",
+                })
+
+            assert result["data"]["status"] == "ready"
+            mock_build.assert_called_once()
+            _, call_kwargs = mock_build.call_args
+            assert call_kwargs.get("pipeline") == "kreuzberg", \
+                f"Expected pipeline='kreuzberg', got {call_kwargs}"
+
+        finally:
+            srv_mod.send = original_send
+
+    def test_handle_init_defaults_pipeline_to_leann(self, tmp_path):
+        """Given no pipeline param, build_index receives pipeline='leann'."""
+        from server import Server
+        import server as srv_mod
+
+        sent = []
+        original_send = srv_mod.send
+        srv_mod.send = lambda rid, rtype, data: sent.append((rtype, data))
+
+        try:
+            srv = Server()
+            mock_model = MagicMock()
+            mock_model.generate.return_value = "Summary"
+            srv.model = mock_model
+
+            (tmp_path / "doc.txt").write_text("hello")
+
+            mock_searcher_inst = MagicMock()
+            mock_searcher_inst.search_and_extract.return_value = "facts"
+
+            mock_captioner = MagicMock()
+            mock_captioner_cls = MagicMock(return_value=mock_captioner)
+            mock_cache_cls = MagicMock(return_value=MagicMock())
+
+            with _make_init_context(tmp_path, mock_searcher_inst,
+                                    mock_captioner_cls, mock_cache_cls) as stack:
+                mock_build = stack.enter_context(
+                    patch("chat.build_index", return_value="test_index"))
+                result = srv.handle_init(1, {"dataDir": str(tmp_path)})
+
+            assert result["data"]["status"] == "ready"
+            mock_build.assert_called_once()
+            _, call_kwargs = mock_build.call_args
+            assert call_kwargs.get("pipeline") == "leann", \
+                f"Expected pipeline='leann', got {call_kwargs}"
+
+        finally:
+            srv_mod.send = original_send
+
+
 class TestEagerVisionLoading:
     """Test that server eagerly loads vision model during init."""
 
