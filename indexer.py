@@ -20,6 +20,9 @@ class KreuzbergIndexer:
     """Ingestion pipeline: kreuzberg extract -> chunk -> LeannBuilder index."""
 
     SKIP_MIME_PREFIXES = ("image/",)
+    CHUNK_MAX_CHARS = 512
+    CHUNK_MAX_OVERLAP = 50
+    WATCHER_DEBOUNCE_MS = 500
 
     def __init__(self, embedding_model: str = "facebook/contriever"):
         self.embedding_model = embedding_model
@@ -65,7 +68,10 @@ class KreuzbergIndexer:
             output_format=OutputFormat.MARKDOWN,
             result_format=ResultFormat.ELEMENT_BASED,
             include_document_structure=True,
-            chunking=ChunkingConfig(max_chars=512, max_overlap=50),
+            chunking=ChunkingConfig(
+                max_chars=self.CHUNK_MAX_CHARS,
+                max_overlap=self.CHUNK_MAX_OVERLAP,
+            ),
         )
 
         builder = LeannBuilder(
@@ -167,7 +173,10 @@ class KreuzbergIndexer:
             output_format=OutputFormat.MARKDOWN,
             result_format=ResultFormat.ELEMENT_BASED,
             include_document_structure=True,
-            chunking=ChunkingConfig(max_chars=512, max_overlap=50),
+            chunking=ChunkingConfig(
+                max_chars=self.CHUNK_MAX_CHARS,
+                max_overlap=self.CHUNK_MAX_OVERLAP,
+            ),
         )
 
         builder = LeannBuilder(
@@ -303,7 +312,7 @@ class KreuzbergIndexer:
         data_dir = Path(data_dir)
 
         def _watch_loop():
-            for changes in watch(data_dir, stop_event=stop_event, debounce=500):
+            for changes in watch(data_dir, stop_event=stop_event, debounce=self.WATCHER_DEBOUNCE_MS):
                 for _change_type, path_str in changes:
                     file_path = Path(path_str)
                     if not file_path.is_file():
