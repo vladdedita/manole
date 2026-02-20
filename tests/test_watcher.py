@@ -180,3 +180,59 @@ class TestIncrementalReindexingFlow:
         index_dir = Path(".leann") / "indexes" / index_name
         if index_dir.exists():
             shutil.rmtree(index_dir)
+
+
+class TestWatcherThreadProperties:
+    """Tests for watcher thread configuration."""
+
+    def test_watcher_thread_is_daemon(self):
+        """The watcher thread must be a daemon so it doesn't block process exit."""
+        indexer = KreuzbergIndexer.__new__(KreuzbergIndexer)
+        indexer.embedding_model = "facebook/contriever"
+        indexer.SKIP_MIME_PREFIXES = ("image/",)
+        indexer._manifest_lock = threading.Lock()
+
+        data_dir = Path("/tmp/test-daemon")
+        stop_event = threading.Event()
+
+        # Watch yields nothing (empty iter) so thread exits immediately
+        with patch("indexer.watch", return_value=iter([])):
+            thread = indexer.start_watcher(data_dir, "test-index", stop_event)
+            assert thread.daemon is True, "Watcher thread must be a daemon thread"
+            thread.join(timeout=2)
+
+
+class TestExtractAndAppendFileGuard:
+    """Tests for extract_and_append_file index existence guard."""
+
+    @patch("indexer.LeannBuilder")
+    @patch("indexer.extract_file_sync")
+    def test_extract_and_append_file_returns_early_when_no_index(self, mock_extract, MockBuilder):
+        """When the index meta file does not exist, extract_and_append_file
+        must return without calling extract or writing a manifest."""
+        data_dir = Path(tempfile.mkdtemp())
+        (data_dir / "doc.pdf").write_bytes(b"pdf-content")
+
+        index_name = f"guard-test-{uuid.uuid4().hex[:8]}"
+        indexer = KreuzbergIndexer()
+
+        # Ensure no index meta file exists
+        meta_path = Path(indexer._index_path(index_name) + ".meta.json")
+        assert not meta_path.exists()
+
+        indexer.extract_and_append_file(
+            file_path=data_dir / "doc.pdf",
+            data_dir=data_dir,
+            index_name=index_name,
+        )
+
+        # No extraction should have been attempted
+        assert mock_extract.call_count == 0, "Should not extract when index doesn't exist"
+        # No manifest should have been written
+        assert indexer._read_manifest(index_name) is None, "Should not write manifest"
+
+        # Cleanup
+        shutil.rmtree(data_dir)
+        index_dir = Path(".leann") / "indexes" / index_name
+        if index_dir.exists():
+            shutil.rmtree(index_dir)
