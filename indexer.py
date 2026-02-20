@@ -26,6 +26,7 @@ class KreuzbergIndexer:
 
     def __init__(self, embedding_model: str = "facebook/contriever"):
         self.embedding_model = embedding_model
+        self._manifest_lock = threading.Lock()
 
     def _make_extraction_config(self) -> ExtractionConfig:
         """Create the standard extraction config for all pipelines."""
@@ -92,6 +93,16 @@ class KreuzbergIndexer:
             chunk_count += 1
         return chunk_count
 
+    def _is_supported_file(self, file_path: Path) -> bool:
+        """Return True if the file exists and has a supported (non-skipped) MIME type."""
+        if not file_path.is_file():
+            return False
+        try:
+            mime = detect_mime_type_from_path(str(file_path))
+        except Exception:
+            return False
+        return not any(mime.startswith(p) for p in self.SKIP_MIME_PREFIXES)
+
     def _index_path(self, index_name: str) -> str:
         """Return the standard index file path for a given index name."""
         return str(Path(".leann") / "indexes" / index_name / "documents.leann")
@@ -108,11 +119,15 @@ class KreuzbergIndexer:
         path.write_text(json.dumps(manifest, indent=2))
 
     def _read_manifest(self, index_name: str) -> dict | None:
-        """Read manifest.json for an index. Returns None if missing."""
+        """Read manifest.json for an index. Returns None if missing or corrupted."""
         path = self._manifest_path(index_name)
         if not path.exists():
             return None
-        return json.loads(path.read_text())
+        try:
+            return json.loads(path.read_text())
+        except json.JSONDecodeError:
+            print(f"  Warning: manifest corrupted for {index_name}, treating as missing")
+            return None
 
     def build(self, data_dir: Path, index_name: str, force: bool = False) -> str:
         """Build a LEANN index from all supported files in data_dir.
@@ -230,11 +245,17 @@ class KreuzbergIndexer:
         writes the updated manifest. This is the entry point the file
         watcher will call.
         """
-        manifest = self._read_manifest(index_name) or {"version": 1, "files": {}}
-        file_records = manifest.get("files", {})
         index_path = self._index_path(index_name)
-        self._extract_and_append(Path(data_dir), [Path(file_path)], index_path, file_records)
-        self._write_manifest(index_name, file_records)
+        meta_path = Path(index_path + ".meta.json")
+        if not meta_path.exists():
+            print(f"  Warning: index {index_name} not found, skipping incremental update")
+            return
+
+        with self._manifest_lock:
+            manifest = self._read_manifest(index_name) or {"version": 1, "files": {}}
+            file_records = manifest.get("files", {})
+            self._extract_and_append(Path(data_dir), [Path(file_path)], index_path, file_records)
+            self._write_manifest(index_name, file_records)
 
     def incremental_update(self, data_dir: Path, index_name: str) -> str:
         """Incrementally update an existing index by processing only new/modified files.
@@ -245,35 +266,35 @@ class KreuzbergIndexer:
         data_dir = Path(data_dir)
         index_path = self._index_path(index_name)
 
-        manifest = self._read_manifest(index_name)
-        existing_files = manifest["files"] if manifest else {}
+        meta_path = Path(index_path + ".meta.json")
+        if not meta_path.exists():
+            print(f"  Warning: index {index_name} not found, skipping incremental update")
+            return index_path
 
-        # Walk directory and find files that need processing
-        files_to_process = []
-        for file_path in sorted(data_dir.rglob("*")):
-            if not file_path.is_file():
-                continue
-            try:
-                mime = detect_mime_type_from_path(str(file_path))
-            except Exception:
-                continue
-            if any(mime.startswith(p) for p in self.SKIP_MIME_PREFIXES):
-                continue
+        with self._manifest_lock:
+            manifest = self._read_manifest(index_name)
+            existing_files = manifest["files"] if manifest else {}
 
-            rel_path = str(file_path.relative_to(data_dir))
-            current_mtime = file_path.stat().st_mtime
+            # Walk directory and find files that need processing
+            files_to_process = []
+            for file_path in sorted(data_dir.rglob("*")):
+                if not self._is_supported_file(file_path):
+                    continue
 
-            if rel_path in existing_files and existing_files[rel_path]["mtime"] == current_mtime:
-                continue  # Unchanged
+                rel_path = str(file_path.relative_to(data_dir))
+                current_mtime = file_path.stat().st_mtime
 
-            files_to_process.append(file_path)
+                if rel_path in existing_files and existing_files[rel_path]["mtime"] == current_mtime:
+                    continue  # Unchanged
 
-        # Copy existing file records to preserve unchanged entries
-        file_records = dict(existing_files)
+                files_to_process.append(file_path)
 
-        if files_to_process:
-            self._extract_and_append(data_dir, files_to_process, index_path, file_records)
-            self._write_manifest(index_name, file_records)
+            # Copy existing file records to preserve unchanged entries
+            file_records = dict(existing_files)
+
+            if files_to_process:
+                self._extract_and_append(data_dir, files_to_process, index_path, file_records)
+                self._write_manifest(index_name, file_records)
 
         return index_path
 
@@ -294,13 +315,7 @@ class KreuzbergIndexer:
             for changes in watch(data_dir, stop_event=stop_event, debounce=self.WATCHER_DEBOUNCE_MS):
                 for _change_type, path_str in changes:
                     file_path = Path(path_str)
-                    if not file_path.is_file():
-                        continue
-                    try:
-                        mime = detect_mime_type_from_path(str(file_path))
-                    except Exception:
-                        continue
-                    if any(mime.startswith(p) for p in self.SKIP_MIME_PREFIXES):
+                    if not self._is_supported_file(file_path):
                         continue
                     print(f"  Watcher: {file_path.name} changed, reindexing...")
                     try:

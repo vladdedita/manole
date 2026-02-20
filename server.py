@@ -104,6 +104,15 @@ class Server:
         _sys.stderr.write(message + "\n")
         _sys.stderr.flush()
 
+    def _stop_watcher(self, entry: dict) -> None:
+        """Stop the file watcher for a directory entry, if one is active."""
+        stop_event = entry.get("watcher_stop")
+        if stop_event:
+            stop_event.set()
+            thread = entry.get("watcher_thread")
+            if thread:
+                thread.join(timeout=3)
+
     def _delete_index_files(self, entry: dict) -> None:
         """Delete the LEANN index directory and .neurofind cache from disk."""
         import shutil
@@ -218,6 +227,10 @@ class Server:
             stop_event = entry.get("watcher_stop")
             if stop_event:
                 stop_event.set()
+        for entry in self.directories.values():
+            thread = entry.get("watcher_thread")
+            if thread:
+                thread.join(timeout=3)
         self.running = False
         return {"id": req_id, "type": "result", "data": {"status": "shutting_down"}}
 

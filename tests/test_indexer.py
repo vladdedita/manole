@@ -342,6 +342,10 @@ def test_incremental_update_extracts_only_new_files(mock_extract, MockBuilder):
     existing_mtime = (data_dir / "existing.pdf").stat().st_mtime
 
     indexer = KreuzbergIndexer()
+    # Create meta file (simulates existing index)
+    meta_path = Path(".leann") / "indexes" / "incr-test" / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
     # Pre-seed manifest with the existing file
     indexer._write_manifest("incr-test", {
         "existing.pdf": {"mtime": existing_mtime, "chunks": 2},
@@ -385,6 +389,10 @@ def test_incremental_update_reextracts_modified_files(mock_extract, MockBuilder)
     data_dir = _make_data_dir(["report.pdf"])
     # Record an old mtime in manifest (different from actual file mtime)
     indexer = KreuzbergIndexer()
+    # Create meta file (simulates existing index)
+    meta_path = Path(".leann") / "indexes" / "mod-test" / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
     actual_mtime = (data_dir / "report.pdf").stat().st_mtime
     indexer._write_manifest("mod-test", {
         "report.pdf": {"mtime": actual_mtime - 100.0, "chunks": 1},
@@ -416,6 +424,10 @@ def test_incremental_update_skips_unchanged_files(mock_extract, MockBuilder):
     data_dir = _make_data_dir(["report.pdf", "slides.pptx"])
 
     indexer = KreuzbergIndexer()
+    # Create meta file (simulates existing index)
+    meta_path = Path(".leann") / "indexes" / "noop-test" / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
     # Manifest mtimes match actual file mtimes exactly
     indexer._write_manifest("noop-test", {
         "report.pdf": {"mtime": (data_dir / "report.pdf").stat().st_mtime, "chunks": 2},
@@ -566,6 +578,11 @@ def test_extract_and_append_file_extracts_appends_and_updates_manifest(mock_extr
     indexer = KreuzbergIndexer()
     index_name = "append-test"
 
+    # Create meta file (simulates existing index)
+    meta_path = Path(".leann") / "indexes" / index_name / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
+
     # Pre-seed manifest with existing file
     indexer._write_manifest(index_name, {
         "existing.pdf": {"mtime": existing_mtime, "chunks": 2},
@@ -621,6 +638,11 @@ def test_extract_and_append_file_creates_manifest_when_none_exists(mock_extract,
     import uuid
     index_name = f"no-manifest-{uuid.uuid4().hex[:8]}"
 
+    # Create meta file (simulates existing index)
+    meta_path = Path(".leann") / "indexes" / index_name / "documents.leann.meta.json"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text("{}")
+
     # No manifest pre-seeded -- _read_manifest returns None
     assert indexer._read_manifest(index_name) is None
 
@@ -646,3 +668,49 @@ def test_extract_and_append_file_creates_manifest_when_none_exists(mock_extract,
     # update_index called (not build_index)
     builder_instance = MockBuilder.return_value
     assert builder_instance.update_index.call_count == 1
+
+# --- Unit test: _read_manifest handles corrupted JSON gracefully ---
+
+def test_read_manifest_returns_none_for_corrupted_json():
+    """Given a manifest.json with invalid JSON content,
+    when _read_manifest() is called,
+    then it returns None (treats as missing) instead of raising."""
+    from indexer import KreuzbergIndexer
+
+    indexer = KreuzbergIndexer()
+    index_name = "corrupt-manifest-test"
+
+    # Create a corrupted manifest file
+    manifest_path = Path(".leann") / "indexes" / index_name / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{invalid json content!!!")
+
+    result = indexer._read_manifest(index_name)
+    assert result is None
+
+
+# --- Unit test: extract_and_append_file skips when index does not exist ---
+
+@patch("indexer.LeannBuilder")
+@patch("indexer.extract_file_sync")
+def test_extract_and_append_file_skips_when_index_missing(mock_extract, MockBuilder):
+    """Given no index meta file exists,
+    when extract_and_append_file() is called,
+    then it returns early without extracting or writing manifest."""
+    from indexer import KreuzbergIndexer
+
+    data_dir = _make_data_dir(["doc.pdf"])
+
+    indexer = KreuzbergIndexer()
+    index_name = "nonexistent-index"
+
+    indexer.extract_and_append_file(
+        file_path=data_dir / "doc.pdf",
+        data_dir=data_dir,
+        index_name=index_name,
+    )
+
+    # No extraction attempted
+    assert mock_extract.call_count == 0
+    # No manifest written
+    assert indexer._read_manifest(index_name) is None

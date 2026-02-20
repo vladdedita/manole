@@ -156,6 +156,34 @@ class TestShutdown:
         result = srv.handle_shutdown(1)
         assert srv.running is False
 
+    def test_shutdown_joins_all_watcher_threads(self):
+        """Given multiple directories with active watchers,
+        when handle_shutdown() is called,
+        then it joins all watcher threads with a timeout."""
+        from server import Server
+        import threading
+
+        srv = Server()
+        stop1 = threading.Event()
+        stop2 = threading.Event()
+        mock_thread1 = MagicMock()
+        mock_thread2 = MagicMock()
+
+        srv.directories["d1"] = {
+            "dir_id": "d1", "state": "ready",
+            "watcher_stop": stop1, "watcher_thread": mock_thread1,
+        }
+        srv.directories["d2"] = {
+            "dir_id": "d2", "state": "ready",
+            "watcher_stop": stop2, "watcher_thread": mock_thread2,
+        }
+
+        srv.handle_shutdown(1)
+        assert stop1.is_set()
+        assert stop2.is_set()
+        mock_thread1.join.assert_called_once_with(timeout=3)
+        mock_thread2.join.assert_called_once_with(timeout=3)
+
 
 class TestMultiDirectoryInit:
     """Test multi-directory initialization."""
